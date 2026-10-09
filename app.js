@@ -328,10 +328,23 @@ function parse(text) {
       const piece = body.slice(a, b);
       const lead = piece.length - piece.trimStart().length;
       const t = piece.trim();
-      if (t.replace(TAG_RE, '').trim()) segs.push({ text: t, who, start: lineStart + off + a + lead, end: lineStart + off + a + lead + t.length });
+      if (!t) return;
+      const start = lineStart + off + a + lead; const end = start + t.length;
+      // 태그만 있는 조각('…요. <laugh>')은 버리지 않고 같은 줄의 앞 문장 끝에 붙임. 줄 첫 조각이면 다음 문장 앞에 붙임
+      if (!t.replace(TAG_RE, '').replace(/[\s.,!?…。！？]/g, '')) {
+        const prev = segs[segs.length - 1];
+        if (prev && prev.end >= lineStart && prev.who === who) { prev.text += ` ${t}`; prev.end = end; }
+        else leadTags = leadTags ? { text: `${leadTags.text} ${t}`, start: leadTags.start } : { text: t, start };
+        return;
+      }
+      if (leadTags) { segs.push({ text: `${leadTags.text} ${t}`, who, start: leadTags.start, end }); leadTags = null; return; }
+      segs.push({ text: t, who, start, end });
     };
+    let leadTags = null;
     while ((mm = SENT_END.exec(body))) { cut(s0, mm.index + mm[0].length); s0 = mm.index + mm[0].length; }
     cut(s0, body.length);
+    // 줄 전체가 태그뿐이면 바로 앞 문장 끝에 붙임
+    if (leadTags && segs.length) { const prev = segs[segs.length - 1]; prev.text += ` ${leadTags.text}`; }
   }
   return segs;
 }
