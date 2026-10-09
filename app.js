@@ -4,6 +4,8 @@
 import { createTTS, VOICES } from './tts-client.js';
 
 const $ = (id) => document.getElementById(id);
+// index.html 의 SVG 아이콘 묶음(<symbol id="i-…">)에서 하나를 씀
+const ic = (name) => `<svg class="ic" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 /* ================= 상수 ================= */
 // Supertonic 3 공식 31개 언어 + na(언어 구분 없이 처리, 공식 README)
@@ -345,7 +347,7 @@ function renderCast() {
     for (const v of VOICES) vs.add(new Option(VOICE_LABEL[v], v, false, v === c.voice));
     const as = document.createElement('select'); as.setAttribute('aria-label', `${w} 나이`);
     for (const [k, l] of [['child', '아이'], ['normal', '보통'], ['adult', '어른'], ['old', '노인']]) as.add(new Option(l, k, false, k === c.age));
-    const pv = document.createElement('button'); pv.type = 'button'; pv.className = 'small ghost'; pv.textContent = '▶'; pv.title = `${w} 목소리 듣기`;
+    const pv = document.createElement('button'); pv.type = 'button'; pv.className = 'icon'; pv.innerHTML = ic('play'); pv.title = `${w} 목소리 듣기`;
     vs.onchange = () => { c.voice = vs.value; save(); renderSegs(); };
     as.onchange = () => { c.age = as.value; save(); renderSegs(); };
     pv.onclick = () => { const s = segs.find((x) => x.who === w); if (s) playSeg(segs.indexOf(s)); };
@@ -376,8 +378,8 @@ function renderSegs() {
     meta.textContent = `${pcm ? `${(pcm.length / tts.sampleRate).toFixed(1)}s · ` : ''}#${optsFor(s).seed}${seedOver[segKey(s)] != null ? '*' : ''}`;
     meta.title = '시드 (* = 다시 뽑은 시드)';
     const acts = document.createElement('span'); acts.className = 'acts';
-    for (const [act, label, title] of [['play', '▶', '듣기'], ['re', '↻', '다시 뽑기(새 시드)'], ['dl', '⬇', 'WAV 저장']]) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'icon'; b.dataset.act = act; b.textContent = label; b.title = title;
+    for (const [act, label, title] of [['play', 'play', '듣기'], ['re', 'reroll', '다시 뽑기(새 시드)'], ['dl', 'download', 'WAV 저장']]) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'icon'; b.dataset.act = act; b.innerHTML = ic(label); b.title = title; b.setAttribute('aria-label', title);
       acts.append(b);
     }
     li.append(no, tx, meta, acts);
@@ -411,7 +413,7 @@ function markDone(i) {
 el.segs.addEventListener('click', async (e) => {
   const li = e.target.closest('li'); if (!li) return;
   const i = Number(li.dataset.i); const s = segs[i];
-  const act = e.target.dataset.act;
+  const act = e.target.closest('[data-act]')?.dataset.act;
   if (!act) { // 문장 글자를 누르면 편집기 커서를 그 문장으로 옮기고 듣기
     el.text.setSelectionRange(s.start, s.start);
     updateCursor();
@@ -593,10 +595,10 @@ function insertTag(tag) {
   ta.setRangeText(`${before && !/\s$/.test(before) ? ' ' : ''}${tag}${!after || /^[\s.,!?…。，！？]/.test(after) ? '' : ' '}`, s, e, 'end');
   ta.dispatchEvent(new Event('input'));
 }
-TAGS.forEach(([tag, icon, name, official], i) => {
+TAGS.forEach(([tag, , name, official], i) => {
   const b = document.createElement('button');
   b.type = 'button'; b.className = `btn tag${official ? '' : ' unofficial'}`;
-  b.innerHTML = `<span>${icon}</span><span class="tag-name">${name}</span>`;
+  b.innerHTML = `<span class="tag-name">${name}</span><span class="k">${(i + 1) % 10}</span>`;
   b.title = `${tag} 넣기 (Alt+${(i + 1) % 10})${official ? '' : ' · 비공식 목록: 효과가 없을 수 있음'}`;
   b.addEventListener('mousedown', (e) => e.preventDefault()); // 커서 위치 유지
   b.onclick = () => insertTag(tag);
