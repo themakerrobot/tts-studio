@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TTS Studio</title>
+  <meta name="description" content="31개 언어 음성 합성을 서버 없이 브라우저 안에서. 문장 듣기, 긴 글 편집, 파일 읽기, 대본(인물별 목소리), WAV 내보내기.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16171c" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f6fdb'/%3E%3Cpath d='M18 26v12M26 20v24M34 14v36M42 22v20M50 28v8' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script>
+    // WASM 이 CPU 여러 코어를 쓰도록 교차 출처 격리를 켬(coi-sw.js). 처음 한 번만 자동 새로고침.
+    (function () {
+      if (window.crossOriginIsolated || !('serviceWorker' in navigator) || !window.isSecureContext) return;
+      navigator.serviceWorker.register('coi-sw.js').then(function () {
+        if (sessionStorage.getItem('coi-reloaded')) return;
+        var reload = function () { sessionStorage.setItem('coi-reloaded', '1'); location.reload(); };
+        if (navigator.serviceWorker.controller) reload();
+        else navigator.serviceWorker.addEventListener('controllerchange', reload);
+      }).catch(function () {});
+    })();
+  </script>
+  <link rel="modulepreload" href="vendor/ort/ort.webgpu.min.mjs">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>TTS Studio</h1>
+    <p id="engine" class="engine" aria-live="polite">음성 엔진 불러오는 중…</p>
+    <span class="ai-badge" title="이 앱의 모든 음성은 AI(Supertonic 3)가 기기 안에서 만든 것입니다">🤖 AI 음성</span>
+  </header>
+
+  <main class="layout">
+    <!-- 목소리 설정 -->
+    <section class="panel settings" aria-labelledby="setTitle">
+      <h2 id="setTitle">목소리</h2>
+      <label><span>언어</span>
+        <select id="lang"></select>
+      </label>
+      <label><span>목소리</span>
+        <span class="row">
+          <select id="voice"></select>
+          <button id="preview" class="small" type="button" title="이 목소리로 짧게 들어 보기">▶</button>
+        </span>
+      </label>
+      <label><span>나이(음 높이)</span>
+        <select id="age">
+          <option value="child">아이</option>
+          <option value="normal" selected>보통</option>
+          <option value="adult">어른</option>
+          <option value="old">노인</option>
+        </select>
+      </label>
+      <label><span>빠르기 <output id="speedOut">1.00</output></span>
+        <input id="speed" type="range" min="0.7" max="1.4" step="0.05" value="1">
+      </label>
+      <label><span>품질(단계) <output id="stepsOut">8</output></span>
+        <input id="steps" type="range" min="2" max="16" step="1" value="8">
+        <small>높을수록 깨끗하지만 느림</small>
+      </label>
+      <label><span>문장 사이 쉼 <output id="gapOut">300</output>ms</span>
+        <input id="gap" type="range" min="0" max="1500" step="50" value="300">
+      </label>
+    </section>
+
+    <section class="panel work">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tabQuick" aria-selected="true" aria-controls="quick">한 문장</button>
+        <button role="tab" id="tabEditor" aria-selected="false" aria-controls="editor">긴 글 · 파일 · 대본</button>
+      </div>
+
+      <!-- 한 문장 -->
+      <div id="quick" role="tabpanel" aria-labelledby="tabQuick">
+        <div class="tagbar" data-target="quickText"></div>
+        <textarea id="quickText" rows="4" placeholder="읽을 문장을 입력하세요. 예: 안녕하세요, 오늘도 좋은 하루 보내세요!"></textarea>
+        <div class="actions">
+          <button id="quickPlay" class="primary" type="button">▶ 듣기</button>
+          <button id="quickStop" type="button">■ 멈춤</button>
+          <button id="quickSave" type="button" disabled>⬇ WAV 저장</button>
+          <span id="quickInfo" class="info"></span>
+        </div>
+      </div>
+
+      <!-- 긴 글 · 파일 · 대본 -->
+      <div id="editor" role="tabpanel" aria-labelledby="tabEditor" hidden>
+        <div class="toolbar">
+          <label class="file-btn">📄 파일 열기<input id="file" type="file" accept=".txt,.md,.srt,.vtt,text/plain"></label>
+          <label class="check"><input id="script" type="checkbox"> 대본 모드 <small>(이름: 대사)</small></label>
+          <span class="tagbar" data-target="edText"></span>
+        </div>
+        <textarea id="edText" rows="12" spellcheck="false" placeholder="긴 글을 붙여 넣거나 파일을 여세요.
+빈 줄은 문단 쉼, 대본 모드에서는 '이름: 대사' 줄마다 인물 목소리로 읽어요.
+.srt 자막을 열면 자막 시간에 맞춰 내보냅니다."></textarea>
+        <div id="cast" class="cast" hidden></div>
+        <div class="actions">
+          <button id="edPlay" class="primary" type="button">▶ 처음부터 듣기</button>
+          <button id="edStop" type="button">■ 멈춤</button>
+          <button id="edSave" type="button">⬇ 전체 WAV</button>
+          <span id="edInfo" class="info"></span>
+        </div>
+        <div class="progress" hidden><div id="bar"></div></div>
+        <ol id="segs" class="segs" aria-label="문장 목록"></ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>음성은 <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noopener">Supertonic 3</a>(Open RAIL-M) 모델로 이 기기 안에서 만들며, 글이 서버로 가지 않습니다.
+    만든 음성은 AI 음성임을 밝혀 주세요. 사람을 사칭하거나 속이는 용도로 쓰면 안 됩니다. Supertone Inc.와 관계없는 프로젝트입니다.
+    · <a href="THIRD_PARTY_NOTICES.md">라이선스</a></p>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
