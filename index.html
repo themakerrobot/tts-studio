@@ -91,6 +91,15 @@
                 <button id="dice" class="icon boxed" type="button" title="무작위 시드" aria-label="무작위 시드"><svg class="ic"><use href="#i-shuffle"/></svg></button></span>
             </label>
             <p class="hint">품질 단계가 높을수록 깨끗하지만 느립니다. 시드를 비우면 문장마다 시드가 정해지고, 목록의 다시 뽑기로 그 문장만 바꿀 수 있습니다.</p>
+            <label class="f"><span>표현 태그</span>
+              <select id="tagMode">
+                <option value="auto">자동 (한·영·일만 사용)</option>
+                <option value="keep">항상 그대로</option>
+                <option value="double">두 번 겹쳐 강조</option>
+                <option value="strip">모두 빼고 읽기</option>
+              </select>
+            </label>
+            <p class="hint">자동은 한·영·일 밖의 언어에서 태그를 빼고 읽습니다. 태그는 실험 기능입니다. 문장 처음이나 끝에 둘 때 잘 되고, 소리 대신 글자로 읽힐 때가 있습니다. 그러면 다시 뽑기나 두 번 겹치기를 써 보세요.</p>
           </div>
         </details>
 
@@ -200,7 +209,7 @@
           <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>~<kbd>0</kbd></td><td>표현 태그 넣기 (버튼 오른쪽 숫자)</td></tr>
           <tr><td><kbd>?</kbd></td><td>이 창 (편집기 밖에서)</td></tr>
         </table>
-        <p class="hint">Mac 은 <kbd>Ctrl</kbd> 대신 <kbd>⌘</kbd>, <kbd>Alt</kbd> 대신 <kbd>⌥</kbd>. 점선 태그 7개는 공식 문서에 이름이 없는 비공식 목록이라 효과가 없을 수 있습니다.</p>
+        <p class="hint">Mac 은 <kbd>Ctrl</kbd> 대신 <kbd>⌘</kbd>, <kbd>Alt</kbd> 대신 <kbd>⌥</kbd>. 공식 태그는 웃음·숨·한숨 3개입니다. '실험 태그'(점선) 7개는 공식 문서에 없는 목록이라 효과가 없거나 글자로 읽힐 수 있습니다. 태그는 문장 처음이나 끝에 두세요.</p>
         <p class="hint">음성은 <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noopener">Supertonic 3</a>(Open RAIL-M)로 이 기기 안에서 만들며 글이 서버로 가지 않습니다. 만든 음성은 AI 음성임을 밝히고, 사람을 사칭하거나 속이는 데 쓰지 마세요. Supertone Inc. 와 관계없는 프로젝트입니다. · <a href="THIRD_PARTY_NOTICES.md">라이선스</a></p>
       </div>
     </form>

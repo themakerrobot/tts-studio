@@ -27,8 +27,8 @@ const TAGS = [
 const TAG_RE = /<[a-z-]+>/g;
 // 나이: 음 높이는 합성 뒤 다시 표본화로 바꾸고, 합성 빠르기를 그만큼 나눠 말 빠르기는 유지
 const AGES = { child: { pitch: 1.1, speed: 1.05 }, normal: { pitch: 1, speed: 1 }, adult: { pitch: 0.96, speed: 0.97 }, old: { pitch: 0.92, speed: 0.9 } };
-const SET_KEYS = ['lang', 'voice', 'age', 'speed', 'pitch', 'steps', 'seed', 'gap', 'para', 'gain', 'rate'];
-const DEFAULTS = { voice: 'F1', age: 'normal', speed: '1', pitch: '1', steps: '8', seed: '', gap: '300', para: '700', gain: '1', rate: '44100' };
+const SET_KEYS = ['lang', 'voice', 'age', 'speed', 'pitch', 'steps', 'seed', 'tagMode', 'gap', 'para', 'gain', 'rate'];
+const DEFAULTS = { voice: 'F1', age: 'normal', speed: '1', pitch: '1', steps: '8', seed: '', tagMode: 'auto', gap: '300', para: '700', gain: '1', rate: '44100' };
 const MODELS = {
   f32: 'leeyunjai/edge-lab@main/tts',
   int8: 'leeyunjai/edge-lab@71800e5/tts-int8',
@@ -39,7 +39,7 @@ const PRESET_KEY = 'tts-studio:presets';
 
 /* ================= 화면 요소 ================= */
 const ids = ['engine', 'helpBtn', 'settings', 'closeSettings', 'sheetBackdrop', 'openSettings', 'lang', 'voice', 'preview', 'age',
-  'preset', 'savePreset', 'delPreset', 'speed', 'pitch', 'steps', 'seed', 'dice', 'gap', 'para', 'gain', 'norm', 'rate',
+  'preset', 'savePreset', 'delPreset', 'speed', 'pitch', 'steps', 'seed', 'dice', 'tagMode', 'gap', 'para', 'gain', 'norm', 'rate',
   'resetSet', 'model', 'ep', 'applyEngine', 'clearModels', 'file', 'script', 'clearText', 'tagbar', 'text', 'cast', 'count',
   'cursorInfo', 'segInfo', 'genAll', 'segs', 'playCur', 'playFrom', 'stop', 'wave', 'nowText', 'saveWav', 'saveSrt', 'saveZip',
   'bar', 'help'];
@@ -99,6 +99,15 @@ const loading = tts.load(setStatus).then(() => {
 const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) % 1000000; };
 // 낭독용 표기: 검열 표시(××)는 '모모', 책 제목 괄호는 소리 내지 않음
 const speakable = (t) => t.replace(/[×○]{2,}/g, '모모').replace(/[「」『』《》〈〉]/g, '').trim();
+// 표현 태그 처리. 개발사 설명: 태그 학습 데이터는 주로 한국어·영어·일본어라 그 밖 언어에서는 태그를 글자로 읽기도 함.
+// 자동 = 한·영·일·언어 구분 없음(na)에서는 그대로, 그 밖 언어에서는 빼고 읽음. 두 번 겹치기는 효과를 키우지만 글자로 읽힐 수도 있음.
+const TAG_LANGS = ['ko', 'en', 'ja', 'na'];
+function applyTags(text, lang, mode) {
+  const m = mode === 'auto' ? (TAG_LANGS.includes(lang) ? 'keep' : 'strip') : mode;
+  if (m === 'strip') return text.replace(TAG_RE, ' ').replace(/\s+/g, ' ').trim();
+  if (m === 'double') return text.replace(TAG_RE, (t) => `${t} ${t}`);
+  return text;
+}
 const segKey = (s) => `${s.who || ''}\u0001${s.text}`;
 
 // 한 문장의 합성 설정: 전체 설정 + (대본이면 인물 목소리·나이) + 시드(문장별 다시 뽑은 것 > 전체 시드 > 문장 내용으로 정한 시드)
@@ -107,10 +116,10 @@ function optsFor(seg) {
   const seed = seedOver[segKey(seg)] ?? (el.seed.value !== '' ? Number(el.seed.value) : hash(seg.text));
   return {
     lang: el.lang.value, voice: c?.voice || el.voice.value, age: c?.age || el.age.value,
-    speed: Number(el.speed.value), pitch: Number(el.pitch.value), steps: Number(el.steps.value), seed,
+    speed: Number(el.speed.value), pitch: Number(el.pitch.value), steps: Number(el.steps.value), seed, tagMode: el.tagMode.value,
   };
 }
-const keyOf = (o, text) => `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.pitch}|${o.steps}|${o.seed}|${text}`;
+const keyOf = (o, text) => `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.pitch}|${o.steps}|${o.seed}|${applyTags(text, o.lang, o.tagMode)}`;
 const cache = new Map();
 const MAX_CACHE = 600;
 async function synth(text, o, signal) {
@@ -121,7 +130,7 @@ async function synth(text, o, signal) {
   const a = AGES[o.age] || AGES.normal;
   const pitch = a.pitch * o.pitch;
   const t0 = performance.now();
-  const raw = await tts.synth(speakable(text), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
+  const raw = await tts.synth(speakable(applyTags(text, o.lang, o.tagMode)), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
   const pcm = pitch === 1 ? raw : resample(raw, pitch);
   const audio = pcm.length / tts.sampleRate;
   if (audio > 0.2) rtf = rtf * 0.7 + ((performance.now() - t0) / 1000 / audio) * 0.3;
@@ -594,6 +603,12 @@ function insertTag(tag) {
   // 앞뒤 띄어쓰기를 맞춤: 앞 글자가 붙어 있으면 한 칸, 뒤가 공백·문장부호면 띄우지 않음
   ta.setRangeText(`${before && !/\s$/.test(before) ? ' ' : ''}${tag}${!after || /^[\s.,!?…。，！？]/.test(after) ? '' : ' '}`, s, e, 'end');
   ta.dispatchEvent(new Event('input'));
+  // 문장 중간에 넣었으면 안내(태그는 문장 처음이나 끝에서 더 잘 됨)
+  const pos = ta.selectionStart;
+  const sb = ta.value.slice(0, pos).split(/[.!?…。！？\n]/).pop().replace(TAG_RE, '').trim();
+  const sa = ta.value.slice(pos).split(/[.!?…。！？\n]/)[0].replace(TAG_RE, '').trim();
+  if (sb && sa) setStatus('표현 태그는 문장 처음이나 끝에 둘 때 더 잘 됩니다');
+  else if (!TAG_LANGS.includes(el.lang.value) && el.tagMode.value === 'auto') setStatus('이 언어는 태그를 빼고 읽습니다 (설정 › 소리 › 표현 태그)');
 }
 TAGS.forEach(([tag, , name, official], i) => {
   const b = document.createElement('button');
@@ -604,6 +619,21 @@ TAGS.forEach(([tag, , name, official], i) => {
   b.onclick = () => insertTag(tag);
   el.tagbar.append(b);
 });
+// 비공식 7개는 기본으로 숨기고 '실험' 단추로 펼침(Alt+4~0 단축키는 숨겨도 동작)
+const EXP_KEY = 'tts-studio:expTags';
+const expBtn = document.createElement('button');
+expBtn.type = 'button'; expBtn.className = 'btn tag exp-toggle';
+expBtn.title = '공식 문서에 없는 태그 7개 (효과가 없거나 글자로 읽힐 수 있음)';
+expBtn.addEventListener('mousedown', (e) => e.preventDefault());
+function showExp(on) {
+  el.tagbar.classList.toggle('show-exp', on);
+  expBtn.textContent = on ? '실험 태그 접기' : '실험 태그 +7';
+  expBtn.setAttribute('aria-expanded', String(on));
+  store.set(EXP_KEY, on);
+}
+expBtn.onclick = () => showExp(!el.tagbar.classList.contains('show-exp'));
+el.tagbar.append(expBtn);
+showExp(!!store.get(EXP_KEY, false));
 
 /* ================= 단축키 ================= */
 document.addEventListener('keydown', (e) => {
