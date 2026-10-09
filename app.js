@@ -7,7 +7,7 @@ const $ = (id) => document.getElementById(id);
 /* ---------- 설정 ---------- */
 // Supertonic 3 공식 지원 31개 언어(모델 카드 기준)
 const LANGS = [
-  ['ko', '한국어'], ['en', 'English'], ['ja', '日本語'], ['ar', 'العربية'], ['bg', 'Български'], ['cs', 'Čeština'],
+  ['na', '자동 · 언어 구분 없음'], ['ko', '한국어'], ['en', 'English'], ['ja', '日本語'], ['ar', 'العربية'], ['bg', 'Български'], ['cs', 'Čeština'],
   ['da', 'Dansk'], ['de', 'Deutsch'], ['el', 'Ελληνικά'], ['es', 'Español'], ['et', 'Eesti'], ['fi', 'Suomi'],
   ['fr', 'Français'], ['hi', 'हिन्दी'], ['hr', 'Hrvatski'], ['hu', 'Magyar'], ['id', 'Bahasa Indonesia'],
   ['it', 'Italiano'], ['lt', 'Lietuvių'], ['lv', 'Latviešu'], ['nl', 'Nederlands'], ['pl', 'Polski'],
@@ -15,16 +15,30 @@ const LANGS = [
   ['sv', 'Svenska'], ['tr', 'Türkçe'], ['uk', 'Українська'], ['vi', 'Tiếng Việt'],
 ];
 const VOICE_LABEL = { F1: '여성 1', F2: '여성 2', F3: '여성 3', F4: '여성 4', F5: '여성 5', M1: '남성 1', M2: '남성 2', M3: '남성 3', M4: '남성 4', M5: '남성 5' };
-// 모델 카드에 나온 표현 태그
-const TAGS = [['<laugh>', '😄 웃음'], ['<sigh>', '😮‍💨 한숨'], ['<breath>', '🌬️ 숨']];
+// 표현 태그 10개. 공식 문서(모델 카드·README)가 이름을 밝힌 것은 앞의 3개뿐이고, 나머지 7개는 제3자 실행기 README의 목록(비공식)
+const TAGS = [
+  ['<laugh>', '😄 웃음', 1], ['<breath>', '🌬️ 숨', 1], ['<sigh>', '😮‍💨 한숨', 1],
+  ['<clear-throat>', '🗣️ 헛기침'], ['<cough>', '🤧 기침'], ['<sneeze>', '🤧 재채기'], ['<sniff>', '👃 훌쩍'],
+  ['<groan>', '😣 끙'], ['<yawn>', '🥱 하품'], ['<hmm>', '🤔 음…'],
+];
 // 나이: 음 높이(pitch)는 모델 입력이 없어 합성 뒤 다시 표본화(resample)로 바꿈. 합성 빠르기를 pitch 로 나눠 말 빠르기는 유지.
 const AGES = { child: { pitch: 1.1, speed: 1.05 }, normal: { pitch: 1, speed: 1 }, adult: { pitch: 0.96, speed: 0.97 }, old: { pitch: 0.92, speed: 0.9 } };
 const PARA_MS = 400; // 빈 줄(문단) 뒤 추가 쉼
 const KEY = 'tts-studio:settings';
+const SET_KEYS = ['lang', 'voice', 'age', 'pitch', 'speed', 'steps', 'gap', 'gain', 'seed'];
+const DEFAULTS = { voice: 'F1', age: 'normal', pitch: '1', speed: '1', steps: '8', gap: '300', gain: '1', seed: '' };
+// 모델·실행 방식: 주소의 ?model= ?ep= 로 엔진에 전달(바꾸면 다시 불러옴)
+const MODELS = {
+  f32: 'leeyunjai/edge-lab@main/tts',
+  int8: 'leeyunjai/edge-lab@71800e5/tts-int8',
+  official: 'supertone-oss-archive/supertonic-3@aafc6e32416a594460b32413efc49d7fe4ce6d46',
+};
 
 const el = {
   engine: $('engine'), lang: $('lang'), voice: $('voice'), age: $('age'), speed: $('speed'), steps: $('steps'), gap: $('gap'),
-  speedOut: $('speedOut'), stepsOut: $('stepsOut'), gapOut: $('gapOut'), preview: $('preview'),
+  pitch: $('pitch'), gain: $('gain'), norm: $('norm'), seed: $('seed'), dice: $('dice'), resetSet: $('resetSet'),
+  model: $('model'), ep: $('ep'), applyEngine: $('applyEngine'), clearModels: $('clearModels'),
+  speedOut: $('speedOut'), stepsOut: $('stepsOut'), gapOut: $('gapOut'), pitchOut: $('pitchOut'), gainOut: $('gainOut'), preview: $('preview'),
   tabQuick: $('tabQuick'), tabEditor: $('tabEditor'), quick: $('quick'), editor: $('editor'),
   quickText: $('quickText'), quickPlay: $('quickPlay'), quickStop: $('quickStop'), quickSave: $('quickSave'), quickInfo: $('quickInfo'),
   file: $('file'), script: $('script'), edText: $('edText'), cast: $('cast'), edPlay: $('edPlay'), edStop: $('edStop'), edSave: $('edSave'),
@@ -37,7 +51,8 @@ for (const v of VOICES) el.voice.add(new Option(VOICE_LABEL[v], v));
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
-    for (const k of ['lang', 'voice', 'age', 'speed', 'steps', 'gap']) if (s[k] != null) el[k].value = s[k];
+    for (const k of SET_KEYS) if (s[k] != null) el[k].value = s[k];
+    if (s.norm) el.norm.checked = true;
     if (s.quick) el.quickText.value = s.quick;
     if (s.editor) el.edText.value = s.editor;
     if (s.script) el.script.checked = true;
@@ -52,7 +67,7 @@ function saveSettings() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        lang: el.lang.value, voice: el.voice.value, age: el.age.value, speed: el.speed.value, steps: el.steps.value, gap: el.gap.value,
+        ...Object.fromEntries(SET_KEYS.map((k) => [k, el[k].value])), norm: el.norm.checked,
         quick: el.quickText.value.slice(0, 2000), editor: el.edText.value.slice(0, 200000), script: el.script.checked, cast: castMap,
       }));
     } catch (_) { /* 저장 공간 없음 */ }
@@ -62,6 +77,8 @@ const showOutputs = () => {
   el.speedOut.textContent = Number(el.speed.value).toFixed(2);
   el.stepsOut.textContent = el.steps.value;
   el.gapOut.textContent = el.gap.value;
+  el.pitchOut.textContent = Number(el.pitch.value).toFixed(2);
+  el.gainOut.textContent = Number(el.gain.value).toFixed(2);
 };
 let castMap = {}; // 대본 모드: 인물 이름 → { voice, age }
 
@@ -81,7 +98,8 @@ for (const bar of document.querySelectorAll('.tagbar')) {
   const ta = $(bar.dataset.target);
   for (const [tag, label] of TAGS) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'small tag'; b.textContent = label; b.title = `${tag} 넣기`;
+    b.type = 'button'; b.className = `small tag${TAGS.find((x) => x[0] === tag)[2] ? '' : ' unofficial'}`; b.textContent = label;
+    b.title = `${tag} 넣기${TAGS.find((x) => x[0] === tag)[2] ? '' : ' (비공식 목록: 효과가 없을 수 있음)'}`;
     // mousedown 기본 동작을 막아 입력칸 선택(커서 위치)이 풀리지 않게
     b.addEventListener('mousedown', (e) => e.preventDefault());
     b.onclick = () => insertAtCursor(ta, tag);
@@ -101,21 +119,37 @@ tts.load(setStatus).then(() => {
 const cache = new Map(); // 같은 설정·같은 문장은 다시 만들지 않음
 const optsOf = (o = {}) => ({
   lang: o.lang || el.lang.value, voice: o.voice || el.voice.value, age: o.age || el.age.value,
-  speed: Number(el.speed.value), steps: Number(el.steps.value),
+  pitch: Number(el.pitch.value), speed: Number(el.speed.value), steps: Number(el.steps.value),
+  seed: el.seed.value === '' ? null : Number(el.seed.value),
 });
 // 낭독용 표기: 검열 표시(××)는 '모모', 책 제목 괄호는 소리 내지 않음
 const speakable = (t) => t.replace(/[×○]{2,}/g, '모모').replace(/[「」『』《》〈〉]/g, '').trim();
 
 async function synth(text, o, signal) {
   if (!ready) throw new Error('음성 엔진이 아직 준비되지 않았어요');
-  const k = `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.steps}|${text}`;
+  const k = keyOf(o, text);
   if (cache.has(k)) return cache.get(k);
   const a = AGES[o.age] || AGES.normal;
-  const raw = await tts.synth(speakable(text), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / a.pitch, signal });
-  const pcm = a.pitch === 1 ? raw : resample(raw, a.pitch);
+  const pitch = a.pitch * o.pitch;
+  const raw = await tts.synth(speakable(text), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
+  const pcm = pitch === 1 ? raw : resample(raw, pitch);
   if (cache.size > 300) cache.delete(cache.keys().next().value);
   cache.set(k, pcm);
   return pcm;
+}
+const keyOf = (o, text) => `${o.lang}|${o.voice}|${o.age}|${o.pitch}|${o.speed}|${o.steps}|${o.seed}|${text}`;
+// 음량: 배율을 곱하고, 자동 맞춤이면 가장 큰 소리가 0.95가 되게. 넘치는 값은 잘라 냄
+function finish(pcm) {
+  let g = Number(el.gain.value);
+  if (el.norm.checked) {
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i++) { const v = Math.abs(pcm[i]); if (v > peak) peak = v; }
+    if (peak > 0) g *= 0.95 / peak;
+  }
+  if (g === 1) return pcm;
+  const out = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) out[i] = Math.max(-1, Math.min(1, pcm[i] * g));
+  return out;
 }
 // 음 높이 바꾸기: rate 배 빠르게 읽은 것과 같음(선형 보간)
 function resample(src, rate) {
@@ -141,7 +175,7 @@ function play(pcm, tailMs = 0) {
   const c = ctx();
   const pad = Math.floor((tailMs / 1000) * tts.sampleRate);
   const buf = c.createBuffer(1, pcm.length + pad, tts.sampleRate);
-  buf.copyToChannel(pcm, 0);
+  buf.copyToChannel(finish(pcm), 0);
   return new Promise((resolve) => {
     stopSound();
     source = c.createBufferSource();
@@ -198,7 +232,7 @@ el.quickPlay.onclick = async () => {
   } catch (e) { if (e.name !== 'AbortError') { console.error(e); el.quickInfo.textContent = `실패: ${e.message}`; } }
 };
 el.quickStop.onclick = () => { quickCtl?.abort(); stopSound(); el.quickInfo.textContent = ''; };
-el.quickSave.onclick = () => quickPcm && download(wavBlob(quickPcm, tts.sampleRate), fileName(`${el.lang.value}-${el.voice.value}`));
+el.quickSave.onclick = () => quickPcm && download(wavBlob(finish(quickPcm), tts.sampleRate), fileName(`${el.lang.value}-${el.voice.value}`));
 el.quickText.addEventListener('input', () => { el.quickSave.disabled = true; quickPcm = null; saveSettings(); });
 el.quickText.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) el.quickPlay.click(); });
 el.preview.onclick = async () => {
@@ -277,7 +311,7 @@ const segOpts = (s) => (s.who && el.script.checked && castMap[s.who] ? optsOf(ca
 let segs = [];
 let runId = 0;
 let edCtl = null;
-const keyOfSeg = (s) => { const o = segOpts(s); return `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.steps}|${s.text}`; };
+const keyOfSeg = (s) => keyOf(segOpts(s), s.text);
 
 function renderSegs() {
   el.segs.replaceChildren(...segs.map((s, i) => {
@@ -290,7 +324,7 @@ function renderSegs() {
     const d = document.createElement('button');
     d.type = 'button'; d.className = 'small'; d.textContent = '⬇'; d.title = '이 문장 WAV 저장';
     d.onclick = async () => {
-      try { download(wavBlob(await synth(s.text, segOpts(s)), tts.sampleRate), fileName(String(i + 1).padStart(3, '0'))); } catch (e) { console.error(e); el.edInfo.textContent = `실패: ${e.message}`; }
+      try { download(wavBlob(finish(await synth(s.text, segOpts(s))), tts.sampleRate), fileName(String(i + 1).padStart(3, '0'))); } catch (e) { console.error(e); el.edInfo.textContent = `실패: ${e.message}`; }
       li.className = 'done';
     };
     li.append(t, d);
@@ -377,7 +411,7 @@ el.edSave.onclick = async () => {
     });
     const out = new Float32Array(total);
     parts.forEach((p, i) => out.set(p, at[i]));
-    download(wavBlob(out, sr), fileName('all'));
+    download(wavBlob(finish(out), sr), fileName('all'));
     el.edInfo.textContent = `저장 완료 · ${(total / sr / 60).toFixed(1)}분`;
   } catch (e) { if (e.name !== 'AbortError') { console.error(e); el.edInfo.textContent = `실패: ${e.message}`; } }
   finally { el.edSave.disabled = false; setTimeout(() => { el.progress.hidden = true; el.bar.style.width = '0'; }, 800); }
@@ -405,8 +439,37 @@ el.tabQuick.onclick = () => tab('quick');
 el.tabEditor.onclick = () => tab('editor');
 
 /* ---------- 설정 변경 ---------- */
-for (const k of ['lang', 'voice', 'age', 'speed', 'steps', 'gap']) {
+for (const k of SET_KEYS) {
   el[k].addEventListener('input', () => { showOutputs(); saveSettings(); el.quickSave.disabled = true; renderSegs(); });
+}
+el.norm.onchange = saveSettings;
+el.dice.onclick = () => { el.seed.value = String(Math.floor(Math.random() * 1000000)); el.seed.dispatchEvent(new Event('input')); };
+el.resetSet.onclick = () => {
+  for (const [k, v] of Object.entries(DEFAULTS)) el[k].value = v;
+  el.norm.checked = false;
+  showOutputs(); saveSettings(); renderSegs();
+};
+
+/* ---------- 엔진(모델·실행 방식) ---------- */
+{
+  const q = new URLSearchParams(location.search);
+  const m = Object.entries(MODELS).find(([, v]) => v === q.get('model'));
+  el.model.value = m ? m[0] : 'auto';
+  el.ep.value = ['webgpu', 'wasm'].includes(q.get('ep')) ? q.get('ep') : 'auto';
+  const changed = () => { el.applyEngine.disabled = false; };
+  el.model.onchange = changed; el.ep.onchange = changed;
+  el.applyEngine.onclick = () => {
+    const p = new URLSearchParams(location.search);
+    for (const k of ['model', 'ep', 'strict']) p.delete(k);
+    if (el.model.value !== 'auto') { p.set('model', MODELS[el.model.value]); p.set('strict', '1'); }
+    if (el.ep.value !== 'auto') p.set('ep', el.ep.value);
+    location.search = p.toString();
+  };
+  el.clearModels.onclick = async () => {
+    if (!confirm('받아 둔 모델 파일을 지울까요? 다음에 열 때 다시 받습니다.')) return;
+    try { for (const k of await caches.keys()) if (k.startsWith('supertonic')) await caches.delete(k); } catch (_) { /* 미지원 */ }
+    location.reload();
+  };
 }
 
 loadSettings();

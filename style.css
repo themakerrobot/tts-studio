@@ -93,3 +93,8 @@ textarea {
 }
 
 .foot { max-width: 1200px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 32px) 28px; color: var(--soft); font-size: 0.8rem; }
+.tag.unofficial { border-style: dashed; }
+.settings h2 + label { margin-top: 0; }
+.settings h2:not(:first-child) { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.settings input[type="number"] { flex: 1; min-width: 0; padding: 6px 8px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); }
+.settings label.check { display: flex; align-items: center; gap: 6px; color: var(--ink); }

@@ -34,6 +34,28 @@
   <main class="layout">
     <!-- 목소리 설정 -->
     <section class="panel settings" aria-labelledby="setTitle">
+      <h2 id="engTitle">엔진</h2>
+      <label><span>모델</span>
+        <select id="model">
+          <option value="auto">자동 (휴대폰·WASM 은 8비트, 그 밖은 32비트)</option>
+          <option value="f32">32비트 원본 (edge-lab/tts, 약 400MB)</option>
+          <option value="int8">8비트 변환본 (edge-lab/tts-int8, 약 180MB)</option>
+          <option value="official">공식 원본 (supertonic-3 아카이브, 32비트)</option>
+        </select>
+      </label>
+      <label><span>실행 방식</span>
+        <select id="ep">
+          <option value="auto">자동 (WebGPU → WASM)</option>
+          <option value="webgpu">WebGPU (그래픽 칩)</option>
+          <option value="wasm">WASM (CPU)</option>
+        </select>
+        <small>8비트 모델은 WASM 이 빠름. 바꾸면 다시 불러옴</small>
+      </label>
+      <span class="row">
+        <button id="applyEngine" class="small" type="button" disabled>적용</button>
+        <button id="clearModels" class="small" type="button" title="받아 둔 모델 파일을 지우고 다음에 다시 받음">받은 모델 지우기</button>
+      </span>
+
       <h2 id="setTitle">목소리</h2>
       <label><span>언어</span>
         <select id="lang"></select>
@@ -52,16 +74,30 @@
           <option value="old">노인</option>
         </select>
       </label>
+      <label><span>음 높이 미세 조정 <output id="pitchOut">1.00</output></span>
+        <input id="pitch" type="range" min="0.85" max="1.15" step="0.01" value="1">
+      </label>
       <label><span>빠르기 <output id="speedOut">1.00</output></span>
-        <input id="speed" type="range" min="0.7" max="1.4" step="0.05" value="1">
+        <input id="speed" type="range" min="0.5" max="2" step="0.05" value="1">
       </label>
       <label><span>품질(단계) <output id="stepsOut">8</output></span>
-        <input id="steps" type="range" min="2" max="16" step="1" value="8">
+        <input id="steps" type="range" min="1" max="32" step="1" value="8">
         <small>높을수록 깨끗하지만 느림</small>
       </label>
       <label><span>문장 사이 쉼 <output id="gapOut">300</output>ms</span>
-        <input id="gap" type="range" min="0" max="1500" step="50" value="300">
+        <input id="gap" type="range" min="0" max="3000" step="50" value="300">
       </label>
+      <label><span>음량 <output id="gainOut">1.00</output></span>
+        <input id="gain" type="range" min="0.3" max="2" step="0.05" value="1">
+      </label>
+      <label class="check"><input id="norm" type="checkbox"> 음량 자동 맞춤(최대치 기준)</label>
+      <label><span>시드 (같은 값이면 같은 소리)</span>
+        <span class="row">
+          <input id="seed" type="number" min="0" max="999999" placeholder="비우면 매번 다름">
+          <button id="dice" class="small" type="button" title="무작위 시드">🎲</button>
+        </span>
+      </label>
+      <button id="resetSet" class="small" type="button">설정 처음값으로</button>
     </section>
 
     <section class="panel work">

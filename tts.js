@@ -44,8 +44,12 @@ function modelSources(search = self.location?.search || '', small = true) {
   const list = !small
     ? [LOCAL, EDGE_LAB, EDGE_LAB_INT8, EDGE_LAB_INT8_MAIN, OFFICIAL]
     : [LOCAL, EDGE_LAB_INT8, EDGE_LAB_INT8_MAIN, EDGE_LAB, OFFICIAL];
-  // ?model= 로 지정한 위치를 먼저 시도하고, 실패하면 기본 후보로 넘어감
-  if (m) list.unshift({ name: q, base: hf(m[1], m[2] || 'main', m[3] || '') });
+  // ?model= 로 지정한 위치를 먼저 시도하고, 실패하면 기본 후보로 넘어감. &strict=1 이면 그 위치만 씀(다른 모델로 넘어가지 않음)
+  if (m) {
+    const pick = { name: q, base: hf(m[1], m[2] || 'main', m[3] || '') };
+    if (new URLSearchParams(search).get('strict')) return [pick];
+    list.unshift(pick);
+  }
   return list;
 }
 const CACHE_NAME = 'supertonic3-aafc6e3';
@@ -175,9 +179,20 @@ function chunkText(text, maxLen) {
   return chunks;
 }
 
-function gaussian() {
-  const u1 = Math.max(1e-4, Math.random());
-  const u2 = Math.random();
+// 시드를 주면 같은 문장·설정에서 늘 같은 소리가 나옴(mulberry32)
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gaussian(rand = Math.random) {
+  const u1 = Math.max(1e-4, rand());
+  const u2 = rand();
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
@@ -328,7 +343,7 @@ export class SupertonicTTS {
   }
 
   // check: 모델 실행 사이마다 부름. 취소됐으면 AbortError 를 던져 합성 중인 문장도 중간에 멈춤.
-  async _infer(text, lang, st, steps, speed, check = async () => {}) {
+  async _infer(text, lang, st, steps, speed, check = async () => {}, rand = Math.random) {
     const { dp, enc, vec, voc } = this.sessions;
     const ids = this.proc.encode(text, lang);
     const L = ids.length;
@@ -349,7 +364,7 @@ export class SupertonicTTS {
     const T = Math.max(1, Math.ceil(wavLen / chunk));
 
     let xt = new Float32Array(dim * T);
-    for (let i = 0; i < xt.length; i++) xt[i] = gaussian();
+    for (let i = 0; i < xt.length; i++) xt[i] = gaussian(rand);
     const latentMask = new ort.Tensor('float32', new Float32Array(T).fill(1), [1, 1, T]);
     const totalStep = new ort.Tensor('float32', new Float32Array([steps]), [1]);
 
@@ -376,7 +391,7 @@ export class SupertonicTTS {
   // 한 줄(대사)을 합성해 Float32Array(PCM, sampleRate) 반환.
   // signal 이 abort 되면 시작 전인 작업은 건너뛰고, 합성 중인 작업도 모델 실행 사이에서 멈춤
   // (다른 이야기로 바꾸거나 목소리·품질을 바꿨을 때 낡은 합성이 줄을 막지 않도록).
-  synth(text, { voice = 'F1', lang = 'ko', steps = 8, speed = 1.05, gap = 0.25, signal, onStart } = {}) {
+  synth(text, { voice = 'F1', lang = 'ko', steps = 8, speed = 1.05, gap = 0.25, seed = null, signal, onStart } = {}) {
     const job = this.lock.then(async () => {
       // 앞 작업이 끝나면 곧바로(마이크로태스크로) 다음 작업이 시작돼서, 그 사이 도착한 취소 메시지가 처리될 틈이 없음.
       // 한 번 이벤트 루프에 양보해 취소 메시지를 먼저 받은 뒤 확인함(워커에서 취소한 문장을 헛되이 합성하던 문제).
@@ -390,7 +405,11 @@ export class SupertonicTTS {
       const st = await this.style(voice);
       const maxLen = lang === 'ko' || lang === 'ja' ? 120 : 300;
       const parts = [];
-      for (const c of chunkText(text, maxLen)) parts.push(await this._infer(c, lang, st, steps, speed, check));
+      const chunks = chunkText(text, maxLen);
+      for (let i = 0; i < chunks.length; i++) {
+        const rand = Number.isFinite(seed) ? seeded(seed + i * 7919) : Math.random;
+        parts.push(await this._infer(chunks[i], lang, st, steps, speed, check, rand));
+      }
       const silence = Math.floor(gap * this.sampleRate);
       const total = parts.reduce((a, p) => a + p.length, 0) + silence * Math.max(0, parts.length - 1);
       const out = new Float32Array(total);
