@@ -84,4 +84,5 @@ Mac 은 `Ctrl` 대신 `⌘`, `Alt` 대신 `⌥`.
 - 만든 음성은 **AI 음성**입니다. 쓸 때 AI 가 만든 음성임을 밝혀 주세요.
 - 실제 사람을 흉내 내거나 속이는 데, 허위 정보나 불법 용도로 쓰면 안 됩니다(모델 라이선스 Open RAIL-M 사용 제한).
 - 음성 모델은 Supertone Inc. 의 [Supertonic 3](https://huggingface.co/supertone-oss-archive/supertonic-3) 입니다. 이 프로젝트는 Supertone Inc. 와 관계가 없습니다.
-- 라이선스 고지: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) · 기술 문서: [docs/TECHNICAL.md](docs/TECHNICAL.md)
+- 이 프로젝트 코드는 [MIT](LICENSE)입니다. 음성 모델과 포함된 구성 요소는 각자의 라이선스를 따릅니다: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- 기술 문서: [docs/TECHNICAL.md](docs/TECHNICAL.md)

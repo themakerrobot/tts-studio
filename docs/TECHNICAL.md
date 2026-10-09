@@ -74,6 +74,7 @@ python3 -m http.server 8000
 저장소 Settings → Pages → Branch `main` / `(root)`. 게시 주소: https://themakerrobot.github.io/tts-studio/
 
 ## 라이선스
+- TTS Studio 코드: MIT ([LICENSE](../LICENSE)).
 - 모델: BigScience Open RAIL-M — 사용 제한(Attachment A)과 AI 생성물 표시 의무. 화면에 `AI 음성` 표시가 있습니다.
 - `tts.js` 는 Supertonic 웹 예제(`web/helper.js`, MIT)를 바탕으로 다시 작성.
 - onnxruntime-web: MIT.
