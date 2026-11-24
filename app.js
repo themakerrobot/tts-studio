@@ -8,9 +8,9 @@ const $ = (id) => document.getElementById(id);
 const ic = (name) => `<svg class="ic" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 /* ================= 상수 ================= */
-// Supertonic 3 공식 31개 언어 + na(언어 구분 없이 처리, 공식 README)
+// Supertonic 3 공식 31개 언어 + na(언어 미지정: 언어 태그 없이 처리. 언어 판별 기능은 아님, 공식 GitHub README)
 const LANGS = [
-  ['na', '자동 · 언어 구분 없음'], ['ko', '한국어'], ['en', 'English'], ['ja', '日本語'], ['ar', 'العربية'],
+  ['na', '언어 미지정'], ['ko', '한국어'], ['en', 'English'], ['ja', '日本語'], ['ar', 'العربية'],
   ['bg', 'Български'], ['cs', 'Čeština'], ['da', 'Dansk'], ['de', 'Deutsch'], ['el', 'Ελληνικά'], ['es', 'Español'],
   ['et', 'Eesti'], ['fi', 'Suomi'], ['fr', 'Français'], ['hi', 'हिन्दी'], ['hr', 'Hrvatski'], ['hu', 'Magyar'],
   ['id', 'Bahasa Indonesia'], ['it', 'Italiano'], ['lt', 'Lietuvių'], ['lv', 'Latviešu'], ['nl', 'Nederlands'],

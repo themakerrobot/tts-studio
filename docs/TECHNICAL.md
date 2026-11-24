@@ -19,7 +19,7 @@
 
 ## 엔진
 - 모델: [Supertonic 3](https://huggingface.co/supertone-oss-archive/supertonic-3) ONNX 4개 — `duration_predictor`, `text_encoder`, `vector_estimator`, `vocoder`. 출력 표본율은 모델 설정(`tts.json` 의 `ae.sample_rate`)을 따름.
-- 언어: 31개 + `na`(언어 구분 없이 처리, 공식 README 기준).
+- 언어: 공식 31개 + `na`(언어 미지정. 언어 태그 없이 처리하며 언어 판별은 하지 않음, supertone-inc/supertonic README 기준). 목록 항목 수는 32개.
 - 목소리: `voice_styles/F1~F5, M1~M5.json`.
 - 실행 방식: WebGPU → WASM 순서로 시도. 휴대폰·태블릿 GPU(Adreno, Mali 등)는 자동일 때 WebGPU 를 건너뜀.
 - WASM 스레드: `crossOriginIsolated` 일 때 `min(4, hardwareConcurrency)`, 아니면 1.
