@@ -2,6 +2,7 @@
 // Based on supertone-inc/supertonic web/helper.js (MIT). Typed-array rewrite + Cache API model storage.
 // onnxruntime-web 1.22.0 (npm 패키지 dist/ 그대로)를 저장소 vendor/ort/ 에 두고 같은 사이트에서 불러옴 → CDN 의존 없음
 import * as ort from './vendor/ort/ort.webgpu.min.mjs';
+import { splitSentences } from './sentences.js';
 
 ort.env.wasm.wasmPaths = new URL('./vendor/ort/', import.meta.url).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated
@@ -151,7 +152,7 @@ class UnicodeProcessor {
     while (text.includes('""')) text = text.replace('""', '"');
     while (text.includes("''")) text = text.replace("''", "'");
     text = text.replace(/\s+/g, ' ').trim();
-    if (!/[.!?;:,'"')\]}…。」』】〉》›»]$/.test(text)) text += '.';
+    if (!/[.!?;:,'"')\]}…。」』】〉》›»।؟]$/.test(text)) text += '.';
     if (!AVAILABLE_LANGS.includes(lang)) throw new Error(`지원하지 않는 언어: ${lang}`);
     return `<${lang}>${text}</${lang}>`;
   }
@@ -167,11 +168,33 @@ class UnicodeProcessor {
   }
 }
 
+// 조각을 앞에서부터 maxLen 안으로 이어 붙임(조각 끝 공백을 그대로 써서 원래 띄어쓰기 유지)
+function pack(parts, maxLen) {
+  const out = [];
+  let cur = '';
+  for (const p of parts) {
+    if (cur.trim() && (cur + p).trim().length > maxLen) { out.push(cur.trim()); cur = p; } else cur += p;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+// maxLen 보다 긴 문장: 쉼표·쉼 부호 → 띄어쓰기 → 글자 수 차례로 나눔(한 번에 너무 긴 글을 넣으면 느리고 메모리가 모자람)
+function splitLong(s, maxLen) {
+  if (s.length <= maxLen) return [s];
+  const out = [];
+  for (const clause of pack(s.match(/[^,，、;；:：]+[,，、;；:：]*\s*|[,，、;；:：]+\s*/gu) || [s], maxLen)) {
+    if (clause.length <= maxLen) { out.push(clause); continue; }
+    for (const words of pack(clause.match(/\S+\s*/gu) || [clause], maxLen)) {
+      if (words.length <= maxLen) { out.push(words); continue; }
+      for (let i = 0; i < words.length; i += maxLen) out.push(words.slice(i, i + maxLen));
+    }
+  }
+  return out;
+}
 function chunkText(text, maxLen) {
-  const sentences = text.trim().split(/(?<=[.!?…])\s+/).filter(Boolean);
   const chunks = [];
   let cur = '';
-  for (const s of sentences) {
+  for (const s of splitSentences(text.trim()).flatMap((x) => splitLong(x, maxLen))) {
     if (cur && cur.length + s.length + 1 > maxLen) { chunks.push(cur); cur = s; }
     else cur = cur ? `${cur} ${s}` : s;
   }

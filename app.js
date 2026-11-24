@@ -2,6 +2,7 @@
 // 편집기 하나 + 문장 목록: 커서 문장 바로 듣기, 문장별 다시 뽑기(시드), 대본(인물별 목소리), 자막 시간 맞춤,
 // WAV · SRT · 문장별 ZIP 내보내기, 단축키.
 import { createTTS, VOICES } from './tts-client.js';
+import { sentenceEnds } from './sentences.js';
 
 const $ = (id) => document.getElementById(id);
 // index.html 의 SVG 아이콘 묶음(<symbol id="i-…">)에서 하나를 씀
@@ -66,7 +67,11 @@ function applySettings(s) {
 function load() {
   const s = store.get(KEY, {});
   applySettings(s);
-  if (!el.lang.value) el.lang.value = LANGS.some(([c]) => c === (navigator.language || '').slice(0, 2)) ? navigator.language.slice(0, 2) : 'ko';
+  // 저장된 언어가 없으면(첫 방문) 브라우저 언어, 목록에 없으면 한국어. select 는 늘 첫 항목 값이 있어서 저장값으로 판단함
+  if (!LANGS.some(([c]) => c === s.lang)) {
+    const nav = (navigator.language || '').slice(0, 2).toLowerCase();
+    el.lang.value = LANGS.some(([c]) => c === nav && c !== 'na') ? nav : 'ko';
+  }
   el.text.value = s.text || '';
   el.script.checked = !!s.script;
   castMap = s.cast || {};
@@ -90,15 +95,16 @@ function showOutputs() {
 const tts = await createTTS();
 let ready = false;
 const setStatus = (m) => { el.engine.textContent = m; };
+const readyStatus = () => { if (ready) setStatus(`준비 · ${tts.backend} · ${tts.source || ''}`); };
 let rtf = 0.5; // 남은 시간 어림용(합성 초 / 음성 초), 실제 값으로 갱신
 const loading = tts.load(setStatus).then(() => {
   ready = true;
-  setStatus(`준비 · ${tts.backend} · ${tts.source || ''}`);
-}, (e) => { console.error(e); setStatus(`엔진을 불러오지 못했어요: ${e.message}`); });
+  readyStatus();
+},(e) => { console.error(e); setStatus(`엔진을 불러오지 못했어요: ${e.message}`); });
 
 const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) % 1000000; };
-// 낭독용 표기: 검열 표시(××)는 '모모', 책 제목 괄호는 소리 내지 않음
-const speakable = (t) => t.replace(/[×○]{2,}/g, '모모').replace(/[「」『』《》〈〉]/g, '').trim();
+// 낭독용 표기: 검열 표시(××)는 한국어에서만 '모모'로 읽고, 책 제목 괄호는 소리 내지 않음
+const speakable = (t, lang) => (lang === 'ko' ? t.replace(/[×○]{2,}/g, '모모') : t).replace(/[「」『』《》〈〉]/g, '').trim();
 // 표현 태그 처리. 개발사 설명: 태그 학습 데이터는 주로 한국어·영어·일본어라 그 밖 언어에서는 태그를 글자로 읽기도 함.
 // 자동 = 한·영·일·언어 구분 없음(na)에서는 그대로, 그 밖 언어에서는 빼고 읽음. 두 번 겹치기는 효과를 키우지만 글자로 읽힐 수도 있음.
 const TAG_LANGS = ['ko', 'en', 'ja', 'na'];
@@ -130,7 +136,7 @@ async function synth(text, o, signal) {
   const a = AGES[o.age] || AGES.normal;
   const pitch = a.pitch * o.pitch;
   const t0 = performance.now();
-  const raw = await tts.synth(speakable(applyTags(text, o.lang, o.tagMode)), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
+  const raw = await tts.synth(speakable(applyTags(text, o.lang, o.tagMode), o.lang), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
   const pcm = pitch === 1 ? raw : resample(raw, pitch);
   const audio = pcm.length / tts.sampleRate;
   if (audio > 0.2) rtf = rtf * 0.7 + ((performance.now() - t0) / 1000 / audio) * 0.3;
@@ -291,7 +297,6 @@ addEventListener('resize', () => drawWave());
 // seg: { text, who, start, end (글자 위치), para (문단 끝), t (자막 시작 초) }
 const SRT_TIME = /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/;
 const toSec = (h, m, s, ms) => Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms.padEnd(3, '0')) / 1000;
-const SENT_END = /[.!?…。！？]+["'”’)\]]*\s+/g;
 function parse(text) {
   const segs = [];
   if (SRT_TIME.test(text)) {
@@ -321,9 +326,8 @@ function parse(text) {
       const sm = body.match(/^([^:：]{1,24})\s*[:：]\s*/);
       if (sm) { who = sm[1].trim(); off += sm[0].length; body = body.slice(sm[0].length); }
     }
-    // 문장 끝(마침표 등 + 공백)에서 자름
-    let s0 = 0; let mm;
-    SENT_END.lastIndex = 0;
+    // 문장 끝에서 자름(기준: sentences.js)
+    let s0 = 0;
     const cut = (a, b) => {
       const piece = body.slice(a, b);
       const lead = piece.length - piece.trimStart().length;
@@ -331,7 +335,7 @@ function parse(text) {
       if (!t) return;
       const start = lineStart + off + a + lead; const end = start + t.length;
       // 태그만 있는 조각('…요. <laugh>')은 버리지 않고 같은 줄의 앞 문장 끝에 붙임. 줄 첫 조각이면 다음 문장 앞에 붙임
-      if (!t.replace(TAG_RE, '').replace(/[\s.,!?…。！？]/g, '')) {
+      if (!t.replace(TAG_RE, '').replace(/[\s.,!?…。、，！？।؟]/g, '')) {
         const prev = segs[segs.length - 1];
         if (prev && prev.end >= lineStart && prev.who === who) { prev.text += ` ${t}`; prev.end = end; }
         else leadTags = leadTags ? { text: `${leadTags.text} ${t}`, start: leadTags.start } : { text: t, start };
@@ -341,7 +345,7 @@ function parse(text) {
       segs.push({ text: t, who, start, end });
     };
     let leadTags = null;
-    while ((mm = SENT_END.exec(body))) { cut(s0, mm.index + mm[0].length); s0 = mm.index + mm[0].length; }
+    for (const e of sentenceEnds(body)) { cut(s0, e); s0 = e; }
     cut(s0, body.length);
     // 줄 전체가 태그뿐이면 바로 앞 문장 끝에 붙임
     if (leadTags && segs.length) { const prev = segs[segs.length - 1]; prev.text += ` ${leadTags.text}`; }
@@ -532,7 +536,7 @@ async function reroll(i) {
   await playSeg(i);
 }
 const gapAfter = (s) => Number(el.gap.value) + (s.para ? Number(el.para.value) : 0);
-function stopAll() { newRun(); el.nowText.textContent = ''; }
+function stopAll() { newRun(); el.nowText.textContent = ''; readyStatus(); }
 
 /* ================= 전체 만들기·내보내기 ================= */
 async function buildAll(label) {
@@ -546,8 +550,8 @@ async function buildAll(label) {
   try {
     for (let i = 0; i < segs.length; i++) {
       mark(i, 'busy');
-      parts.push(await synth(segs[i].text, optsFor(segs[i]), sig));
-      markDone(i); mark(i, 'busy', false);
+      try { parts.push(await synth(segs[i].text, optsFor(segs[i]), sig)); } finally { mark(i, 'busy', false); }
+      markDone(i);
       if (my !== runId) throw new DOMException('취소됨', 'AbortError');
       doneChars += segs[i].text.length;
       const frac = doneChars / total;
@@ -556,6 +560,9 @@ async function buildAll(label) {
       el.bar.style.width = `${frac * 100}%`;
       setStatus(`${label} ${i + 1}/${segs.length}${eta ? ` · 남은 시간 약 ${Math.ceil(eta)}초` : ''}`);
     }
+  } catch (e) {
+    if (e?.name === 'AbortError') readyStatus(); // 멈추거나 다른 듣기로 끊겼으면 진행 문구를 지움
+    throw e;
   } finally {
     setTimeout(() => { el.progress.hidden = true; el.bar.style.width = '0'; }, 600);
   }
@@ -618,8 +625,8 @@ function insertTag(tag) {
   ta.dispatchEvent(new Event('input'));
   // 문장 중간에 넣었으면 안내(태그는 문장 처음이나 끝에서 더 잘 됨)
   const pos = ta.selectionStart;
-  const sb = ta.value.slice(0, pos).split(/[.!?…。！？\n]/).pop().replace(TAG_RE, '').trim();
-  const sa = ta.value.slice(pos).split(/[.!?…。！？\n]/)[0].replace(TAG_RE, '').trim();
+  const sb = ta.value.slice(0, pos).split(/[.!?…。！？।؟\n]/).pop().replace(TAG_RE, '').trim();
+  const sa = ta.value.slice(pos).split(/[.!?…。！？।؟\n]/)[0].replace(TAG_RE, '').trim();
   if (sb && sa) setStatus('표현 태그는 문장 처음이나 끝에 둘 때 더 잘 됩니다');
   else if (!TAG_LANGS.includes(el.lang.value) && el.tagMode.value === 'auto') setStatus('이 언어는 태그를 빼고 읽습니다 (설정 › 소리 › 표현 태그)');
 }
@@ -687,7 +694,10 @@ el.sheetBackdrop.onclick = closeSheet;
 if (isSheet()) for (const d of el.settings.querySelectorAll('details')) d.open = d === el.settings.querySelector('details');
 
 /* ================= 설정 변경 ================= */
-for (const k of SET_KEYS) el[k].addEventListener('input', () => { showOutputs(); save(); renderSegs(); });
+// 밀대를 끄는 동안 input 이 계속 오므로, 문장 목록은 화면 그리기 한 번에 한 번만 다시 그림(긴 글에서 끊김 방지)
+let renderQ = 0;
+const renderSoon = () => { if (!renderQ) renderQ = requestAnimationFrame(() => { renderQ = 0; renderSegs(); }); };
+for (const k of SET_KEYS) el[k].addEventListener('input', () => { showOutputs(); save(); renderSoon(); });
 el.norm.onchange = save;
 el.dice.onclick = () => { el.seed.value = String(Math.floor(Math.random() * 1000000)); el.seed.dispatchEvent(new Event('input')); };
 el.resetSet.onclick = () => { applySettings(DEFAULTS); el.norm.checked = false; save(); renderSegs(); };
