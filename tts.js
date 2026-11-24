@@ -30,8 +30,8 @@ const OFFICIAL = {
   base: hf('supertone-oss-archive/supertonic-3', 'aafc6e32416a594460b32413efc49d7fe4ce6d46'),
 };
 const LOCAL = { name: '자체 호스팅', base: './assets', local: true };
-// 기기에 남겨 두는 모델(설정 › 엔진에서 고를 수 있는 3종). app.js 의 MODELS 와 같은 위치
-const KEEP_MODELS = [EDGE_LAB, EDGE_LAB_INT8, OFFICIAL];
+// 설정 › 엔진에서 고를 수 있는 3종. app.js 의 MODELS 와 같은 위치
+const KNOWN_MODELS = [EDGE_LAB, EDGE_LAB_INT8, OFFICIAL];
 
 // search: 페이지 주소의 ?… 부분. 워커 안에서는 location 이 워커 파일 주소라서 페이지에서 넘겨받음.
 // small: 8비트 먼저(WASM, 또는 WebGPU라도 휴대폰·태블릿이면 — 받는 양·메모리를 줄이려고). 아니면 32비트 먼저
@@ -51,7 +51,7 @@ function modelSources(search = self.location?.search || '', small = true) {
   if (m) {
     const base = hf(m[1], m[2] || 'main', m[3] || '');
     // 기본 모델 3종이면 화면에 저장소 주소 대신 이름을 보여 줌
-    const pick = { name: KEEP_MODELS.find((k) => k.base === base)?.name || q, base };
+    const pick = { name: KNOWN_MODELS.find((k) => k.base === base)?.name || q, base };
     if (new URLSearchParams(search).get('strict')) return [pick];
     list.unshift(pick);
   }
@@ -340,14 +340,12 @@ export class SupertonicTTS {
     }
     if (!this.sessions) throw new Error(`모델을 찾지 못했어요. ${tried.join(' / ')}`);
 
-    // 기본 모델 3종(32비트·8비트·공식 원본)은 엔진을 바꿔도 다시 받지 않도록 남겨 둠.
-    // 그 밖의 모델 파일(예전 리비전, 8비트 main 대체본, 지금 안 쓰는 ?model= 위치)만 기기 저장소에서 지움
+    // 기기에는 지금 쓰는 모델 1개만 둠: 이 4개 파일이 아닌 모델 파일(다른 모델, 예전 리비전 등)은 지움
     try {
       const cache = await openCache();
       const inUse = new Set(names.map(([, file]) => `${this.onnxDir}/${file}`));
-      const keep = KEEP_MODELS.map((s) => `${s.base}/`);
       for (const req of (await cache?.keys()) || []) {
-        if (req.url.endsWith('.onnx') && !inUse.has(req.url) && !keep.some((b) => req.url.startsWith(b))) {
+        if (req.url.endsWith('.onnx') && !inUse.has(req.url)) {
           await cache.delete(req);
           console.info(`[tts] 쓰지 않는 예전 모델 파일 정리: ${req.url.split('/').slice(-3).join('/')}`);
         }

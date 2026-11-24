@@ -25,7 +25,7 @@
 - 실행 방식: WebGPU → WASM 순서로 시도. 휴대폰·태블릿 GPU(Adreno, Mali 등)는 자동일 때 WebGPU 를 건너뜀.
 - WASM 스레드: `crossOriginIsolated` 일 때 `min(4, hardwareConcurrency)`, 아니면 1.
 - 모델 파일은 처음 받을 때 Cache Storage(`supertonic3-aafc6e3`)에 바로 흘려 넣고, 다음부터 네트워크 없이 읽음.
-- 기본 모델 3종(32비트·8비트·공식 원본)은 엔진을 바꿔도 지우지 않음. 그 밖의 `.onnx`(예전 리비전, 8비트 main 대체본, 쓰지 않는 `?model=` 위치)만 로딩 뒤 정리. 설정 › 엔진에 저장 여부(`저장됨` / `사용 중`)와 `navigator.storage.estimate()` 사용량 표시.
+- 기기에는 모델 1개만 둠: 로딩이 끝나면 지금 쓰는 4개 파일이 아닌 `.onnx`(다른 모델, 예전 리비전 등)는 지움. 설정 › 엔진에 지금 쓰는 모델(`사용 중`)과 `navigator.storage.estimate()` 사용량 표시.
 
 ## 모델 위치
 위에서부터 차례로 시도하고, 없거나 구성이 다르면 다음으로 넘어갑니다.

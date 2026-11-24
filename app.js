@@ -786,32 +786,25 @@ el.preset.onchange = () => { const ps = store.get(PRESET_KEY, {}); if (ps[el.pre
   };
 }
 
-/* ---- 저장된 모델 표시 ---- */
-// tts.js 의 Cache Storage 이름(CACHE_NAME)과 같아야 함
-const MODEL_CACHE = 'supertonic3-aafc6e3';
+/* ---- 지금 쓰는 모델 표시 (기기에는 이 모델 1개만 저장됨) ---- */
 const hfBase = (spec) => {
   const m = spec.match(/^([\w.-]+\/[\w.-]+)@([\w.-]+)(?:\/(.+))?$/);
   return `https://huggingface.co/${m[1]}/resolve/${m[2]}${m[3] ? `/${m[3]}` : ''}`;
 };
 async function refreshModelInfo() {
-  let urls = [];
-  try { urls = (await (await caches.open(MODEL_CACHE)).keys()).map((r) => r.url); } catch (_) { /* 미지원 */ }
   const dir = tts.onnxDir || '';
-  const saved = [];
+  let current = '';
   for (const [k, spec] of Object.entries(MODELS)) {
     const base = hfBase(spec);
-    const n = urls.filter((u) => u.endsWith('.onnx') && u.startsWith(`${base}/`) && !u.slice(base.length + 1).replace(/^onnx\//, '').includes('/')).length;
     const inUse = dir === base || dir.startsWith(`${base}/`);
     const opt = el.model.querySelector(`option[value="${k}"]`);
-    opt.textContent = `${opt.dataset.label}${inUse ? ' · 사용 중' : n >= 4 ? ' · 저장됨' : ''}`;
-    if (n >= 4) saved.push(opt.dataset.label.replace(/\s*\(.*$/, ''));
+    opt.textContent = `${opt.dataset.label}${inUse ? ' · 사용 중' : ''}`;
+    if (inUse) current = opt.dataset.label;
   }
   let used = '';
   try { const e = await navigator.storage?.estimate?.(); if (e?.usage) used = ` · 이 사이트 저장 공간 약 ${Math.round(e.usage / 1048576)}MB`; } catch (_) { /* 미지원 */ }
   if (!el.modelInfo) return; // 예전 index.html 이 캐시에 남아 있을 때
-  el.modelInfo.textContent = saved.length
-    ? `기기에 저장된 모델: ${saved.join(', ')}${used}. 저장된 모델로 바꾸면 다시 받지 않습니다.`
-    : `저장된 모델이 없습니다. 처음 쓰는 모델은 내려받습니다${used}.`;
+  el.modelInfo.textContent = `${current ? `기기에 저장된 모델: ${current}${used}. ` : ''}다른 모델로 바꾸면 새로 내려받고, 지금 모델은 지웁니다.`;
 }
 
 /* ---- 버튼 ---- */
