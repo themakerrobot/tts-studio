@@ -1,6 +1,6 @@
 // TTS Studio — Supertonic 3 음성 합성 작업 도구 (브라우저 안에서, 서버 없음)
-// 편집기 하나 + 문장 목록: 커서 문장 바로 듣기, 문장별 다시 뽑기(시드), 대본(인물별 목소리), 자막 시간 맞춤,
-// WAV · SRT · 문장별 ZIP 내보내기, 단축키.
+// 편집기 하나 + 문장 목록: 커서 문장 바로 듣기, 문장별 다시 뽑기(후보 3개), 문장별 설정, 대본(인물별 목소리),
+// 쉼 표기([1초]), 읽기 사전, 자막 시간 맞춤, WAV · SRT · 문장별 ZIP · 프로젝트(.json) 내보내기, 단축키.
 import { createTTS, VOICES } from './tts-client.js';
 import { sentenceEnds } from './sentences.js';
 
@@ -18,6 +18,20 @@ const LANGS = [
   ['pl', 'Polski'], ['pt', 'Português'], ['ro', 'Română'], ['ru', 'Русский'], ['sk', 'Slovenčina'],
   ['sl', 'Slovenščina'], ['sv', 'Svenska'], ['tr', 'Türkçe'], ['uk', 'Українська'], ['vi', 'Tiếng Việt'],
 ];
+// 목소리 미리 듣기 문장(고른 언어로)
+const SAMPLES = {
+  ko: '안녕하세요, 만나서 반가워요.', en: 'Hello, nice to meet you.', ja: 'こんにちは、はじめまして。',
+  ar: 'مرحبا، تشرفت بلقائك.', bg: 'Здравейте, приятно ми е да се запознаем.', cs: 'Dobrý den, rád vás poznávám.',
+  da: 'Hej, rart at møde dig.', de: 'Hallo, schön, dich kennenzulernen.', el: 'Γεια σας, χάρηκα πολύ.',
+  es: 'Hola, encantado de conocerte.', et: 'Tere, meeldiv tutvuda.', fi: 'Hei, hauska tavata.',
+  fr: 'Bonjour, ravi de vous rencontrer.', hi: 'नमस्ते, आपसे मिलकर खुशी हुई।', hr: 'Bok, drago mi je.',
+  hu: 'Szia, örülök, hogy megismerhetlek.', id: 'Halo, senang bertemu dengan Anda.', it: 'Ciao, piacere di conoscerti.',
+  lt: 'Labas, malonu susipažinti.', lv: 'Sveiki, prieks iepazīties.', nl: 'Hallo, leuk je te ontmoeten.',
+  pl: 'Cześć, miło cię poznać.', pt: 'Olá, prazer em conhecê-lo.', ro: 'Bună, încântat de cunoștință.',
+  ru: 'Здравствуйте, приятно познакомиться.', sk: 'Dobrý deň, teší ma.', sl: 'Pozdravljeni, me veseli.',
+  sv: 'Hej, trevligt att träffas.', tr: 'Merhaba, tanıştığıma memnun oldum.', uk: 'Привіт, радий познайомитися.',
+  vi: 'Xin chào, rất vui được gặp bạn.', na: 'Hello, nice to meet you.',
+};
 const VOICE_LABEL = { F1: '여성 1', F2: '여성 2', F3: '여성 3', F4: '여성 4', F5: '여성 5', M1: '남성 1', M2: '남성 2', M3: '남성 3', M4: '남성 4', M5: '남성 5' };
 // 표현 태그 10개: 앞의 3개만 공식 문서에 이름이 있음. 나머지 7개는 제3자 실행기 README의 목록(비공식)
 const TAGS = [
@@ -26,8 +40,15 @@ const TAGS = [
   ['<groan>', '😣', '끙'], ['<yawn>', '🥱', '하품'], ['<hmm>', '🤔', '음…'],
 ];
 const TAG_RE = /<[a-z-]+>/g;
+// 쉼 표기: [1초] [0.5초] [1.5s] [500ms] (최대 10초)
+const PAUSE_RE = /\[\s*(\d+(?:\.\d+)?)\s*(초|s|ms)\s*\]/gi;
+const pauseMs = (n, unit) => Math.min(10000, unit.toLowerCase() === 'ms' ? Number(n) : Number(n) * 1000);
+const PUNCT_RE = /[\s.,!?…。、，！？।؟]/g;
+// 화면·자막용: 태그와 쉼 표기를 뺀 글
+const plain = (t) => t.replace(TAG_RE, '').replace(PAUSE_RE, '').replace(/\s+/g, ' ').trim();
 // 나이: 음 높이는 합성 뒤 다시 표본화로 바꾸고, 합성 빠르기를 그만큼 나눠 말 빠르기는 유지
 const AGES = { child: { pitch: 1.1, speed: 1.05 }, normal: { pitch: 1, speed: 1 }, adult: { pitch: 0.96, speed: 0.97 }, old: { pitch: 0.92, speed: 0.9 } };
+const AGE_LABEL = [['child', '아이'], ['normal', '보통'], ['adult', '어른'], ['old', '노인']];
 const SET_KEYS = ['lang', 'voice', 'age', 'speed', 'pitch', 'steps', 'seed', 'tagMode', 'gap', 'para', 'gain', 'rate'];
 const DEFAULTS = { voice: 'F1', age: 'normal', speed: '1', pitch: '1', steps: '8', seed: '', tagMode: 'auto', gap: '300', para: '700', gain: '1', rate: '44100' };
 const MODELS = {
@@ -35,17 +56,25 @@ const MODELS = {
   int8: 'leeyunjai/edge-lab@71800e5/tts-int8',
   official: 'supertone-oss-archive/supertonic-3@aafc6e32416a594460b32413efc49d7fe4ce6d46',
 };
+// 문장별 설정 선택지
+const SPEED_OPTS = [0.7, 0.8, 0.9, 1.1, 1.2, 1.3, 1.5];
+const GAP_OPTS = [0, 150, 300, 500, 1000, 1500, 2000, 3000];
 const KEY = 'tts-studio:v2';
 const PRESET_KEY = 'tts-studio:presets';
+const DICT_KEY = 'tts-studio:dict';
+const THEME_KEY = 'tts-studio:theme';
+const PROJECT_TYPE = 'tts-studio-project';
 
 /* ================= 화면 요소 ================= */
-const ids = ['engine', 'helpBtn', 'settings', 'closeSettings', 'sheetBackdrop', 'openSettings', 'lang', 'voice', 'preview', 'age',
-  'preset', 'savePreset', 'delPreset', 'speed', 'pitch', 'steps', 'seed', 'dice', 'tagMode', 'gap', 'para', 'gain', 'norm', 'rate',
-  'resetSet', 'model', 'ep', 'applyEngine', 'clearModels', 'file', 'script', 'clearText', 'tagbar', 'text', 'cast', 'count',
-  'cursorInfo', 'segInfo', 'genAll', 'segs', 'playCur', 'playFrom', 'stop', 'wave', 'nowText', 'saveWav', 'saveSrt', 'saveZip',
-  'bar', 'help', 'modelInfo'];
+const ids = ['engine', 'themeBtn', 'helpBtn', 'settings', 'closeSettings', 'sheetBackdrop', 'openSettings', 'lang', 'voice', 'preview', 'age',
+  'preset', 'savePreset', 'delPreset', 'speed', 'pitch', 'steps', 'seed', 'dice', 'tagMode', 'dictCount', 'dictList', 'dictAdd',
+  'gap', 'para', 'gain', 'norm', 'rate', 'resetSet', 'model', 'ep', 'applyEngine', 'clearModels', 'modelInfo',
+  'file', 'saveProject', 'script', 'clearText', 'tagbar', 'text', 'cast', 'count', 'cursorInfo', 'segInfo', 'genAll', 'segs',
+  'playCur', 'playFrom', 'stop', 'wave', 'nowText', 'saveWav', 'saveSrt', 'saveZip', 'saveSrt2', 'saveZip2', 'bar', 'help',
+  'ask', 'askTitle', 'askMsg', 'askBtns'];
 const el = Object.fromEntries(ids.map((k) => [k, $(k)]));
 el.progress = document.querySelector('.progress');
+el.waveWrap = document.querySelector('.wave-wrap');
 for (const k of ['speed', 'pitch', 'steps', 'gap', 'para', 'gain']) el[`${k}Out`] = $(`${k}Out`);
 
 for (const [code, name] of LANGS) el.lang.add(new Option(`${name} (${code})`, code));
@@ -57,10 +86,13 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* 공간 없음 */ } },
 };
 let castMap = {};   // 대본: 인물 → { voice, age }
-let seedOver = {};  // 문장별로 다시 뽑은 시드: 문장 키 → 시드
+let seedOver = {};  // 문장별로 고른 시드: 문장 키 → 시드
+let takes = {};     // 다시 뽑기 후보: 문장 키 → [시드…] (최근 3개)
+let segOpt = {};    // 문장별 설정: 문장 키 → { voice, speed, gap }
+let dict = [];      // 읽기 사전: [[원래 글, 읽을 말]…]
 const settingsNow = () => ({ ...Object.fromEntries(SET_KEYS.map((k) => [k, el[k].value])), norm: el.norm.checked });
 function applySettings(s) {
-  for (const k of SET_KEYS) if (s[k] != null && s[k] !== undefined) el[k].value = s[k];
+  for (const k of SET_KEYS) if (s[k] != null) el[k].value = s[k];
   if (s.norm != null) el.norm.checked = !!s.norm;
   showOutputs();
 }
@@ -76,11 +108,25 @@ function load() {
   el.script.checked = !!s.script;
   castMap = s.cast || {};
   seedOver = s.seedOver || {};
+  takes = s.takes || {};
+  segOpt = s.segOpt || {};
+  dict = store.get(DICT_KEY, []);
+  compileDict();
+}
+// 문장 키로 남겨 둔 값(시드·후보·문장별 설정)이 너무 많아지면 지금 글에 없는 것부터 정리
+function prune(map) {
+  const keys = Object.keys(map);
+  if (keys.length < 400) return map;
+  const live = new Set(segs.map(segKey));
+  return Object.fromEntries(keys.filter((k) => live.has(k)).map((k) => [k, map[k]]));
 }
 let saveT = 0;
 function save() {
   clearTimeout(saveT);
-  saveT = setTimeout(() => store.set(KEY, { ...settingsNow(), text: el.text.value.slice(0, 300000), script: el.script.checked, cast: castMap, seedOver }), 300);
+  saveT = setTimeout(() => {
+    seedOver = prune(seedOver); takes = prune(takes); segOpt = prune(segOpt);
+    store.set(KEY, { ...settingsNow(), text: el.text.value.slice(0, 300000), script: el.script.checked, cast: castMap, seedOver, takes, segOpt });
+  }, 300);
 }
 function showOutputs() {
   el.speedOut.textContent = `${Number(el.speed.value).toFixed(2)}×`;
@@ -97,7 +143,6 @@ let ready = false;
 // 상태 문구 + 왼쪽 표시등(load 준비 중 / ok 준비됨 / busy 만드는 중 / error 실패)
 const setStatus = (m, state = ready ? 'ok' : 'load') => { el.engine.textContent = m; el.engine.dataset.state = state; el.engine.title = m; };
 const readyStatus = () => { if (ready) setStatus(`준비 · ${tts.backend} · ${tts.source || ''}`, 'ok'); };
-let rtf = 0.5; // 남은 시간 어림용(합성 초 / 음성 초), 실제 값으로 갱신
 const loading = tts.load(setStatus).then(() => {
   ready = true;
   readyStatus();
@@ -108,7 +153,7 @@ const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h
 // 낭독용 표기: 검열 표시(××)는 한국어에서만 '모모'로 읽고, 책 제목 괄호는 소리 내지 않음
 const speakable = (t, lang) => (lang === 'ko' ? t.replace(/[×○]{2,}/g, '모모') : t).replace(/[「」『』《》〈〉]/g, '').trim();
 // 표현 태그 처리. 개발사 설명: 태그 학습 데이터는 주로 한국어·영어·일본어라 그 밖 언어에서는 태그를 글자로 읽기도 함.
-// 자동 = 한·영·일·언어 구분 없음(na)에서는 그대로, 그 밖 언어에서는 빼고 읽음. 두 번 겹치기는 효과를 키우지만 글자로 읽힐 수도 있음.
+// 자동 = 한·영·일·언어 미지정(na)에서는 그대로, 그 밖 언어에서는 빼고 읽음. 두 번 겹치기는 효과를 키우지만 글자로 읽힐 수도 있음.
 const TAG_LANGS = ['ko', 'en', 'ja', 'na'];
 function applyTags(text, lang, mode) {
   const m = mode === 'auto' ? (TAG_LANGS.includes(lang) ? 'keep' : 'strip') : mode;
@@ -116,32 +161,77 @@ function applyTags(text, lang, mode) {
   if (m === 'double') return text.replace(TAG_RE, (t) => `${t} ${t}`);
   return text;
 }
-const segKey = (s) => `${s.who || ''}\u0001${s.text}`;
 
-// 한 문장의 합성 설정: 전체 설정 + (대본이면 인물 목소리·나이) + 시드(문장별 다시 뽑은 것 > 전체 시드 > 문장 내용으로 정한 시드)
+/* ---- 읽기 사전 ---- */
+// 한 번에 바꾸는 정규식 하나로 만듦(바꾼 말을 다시 바꾸지 않도록). 긴 말 먼저, 영문은 대소문자 무시·단어 단위
+let dictRe = null;
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function compileDict() {
+  const ents = dict.map(([a, b]) => [String(a || '').trim(), String(b ?? '')]).filter(([a]) => a).sort((x, y) => y[0].length - x[0].length);
+  el.dictCount.textContent = ents.length ? String(ents.length) : '';
+  if (!ents.length) { dictRe = null; return; }
+  const map = new Map(ents.map(([a, b]) => [a.toLowerCase(), b]));
+  const alt = ents.map(([a]) => `${/^[A-Za-z0-9]/.test(a) ? '(?<![A-Za-z0-9])' : ''}${escRe(a)}${/[A-Za-z0-9]$/.test(a) ? '(?![A-Za-z0-9])' : ''}`);
+  try { dictRe = { re: new RegExp(alt.join('|'), 'giu'), map }; } catch (_) { dictRe = null; }
+}
+const applyDict = (t) => (dictRe ? t.replace(dictRe.re, (m) => dictRe.map.get(m.toLowerCase()) ?? m) : t);
+
+/* ---- 문장 키·합성 설정 ---- */
+const segKey = (s) => `${s.who || ''}\u0001${s.text}`;
+// 한 문장의 합성 설정: 전체 설정 < 대본 인물 < 문장별 설정, 시드는 고른 후보 > 전체 시드 > 문장 내용으로 정한 시드
 function optsFor(seg) {
+  const k = segKey(seg);
   const c = seg.who && el.script.checked ? castMap[seg.who] : null;
-  const seed = seedOver[segKey(seg)] ?? (el.seed.value !== '' ? Number(el.seed.value) : hash(seg.text));
+  const so = segOpt[k] || {};
+  const seed = seedOver[k] ?? (el.seed.value !== '' ? Number(el.seed.value) : hash(seg.text));
   return {
-    lang: el.lang.value, voice: c?.voice || el.voice.value, age: c?.age || el.age.value,
-    speed: Number(el.speed.value), pitch: Number(el.pitch.value), steps: Number(el.steps.value), seed, tagMode: el.tagMode.value,
+    lang: el.lang.value, voice: so.voice || c?.voice || el.voice.value, age: c?.age || el.age.value,
+    speed: Number(so.speed || el.speed.value), pitch: Number(el.pitch.value), steps: Number(el.steps.value), seed, tagMode: el.tagMode.value,
   };
 }
-const keyOf = (o, text) => `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.pitch}|${o.steps}|${o.seed}|${applyTags(text, o.lang, o.tagMode)}`;
+// 모델에 넣기 전 글: 태그 처리 → 읽기 사전 (쉼 표기는 합성 때 나눔)
+const prepare = (text, o) => applyDict(applyTags(text, o.lang, o.tagMode));
+const keyOf = (o, text) => `${o.lang}|${o.voice}|${o.age}|${o.speed}|${o.pitch}|${o.steps}|${o.seed}|${prepare(text, o)}`;
+function splitPauses(t) {
+  const out = []; let last = 0;
+  for (const m of t.matchAll(PAUSE_RE)) { out.push({ text: t.slice(last, m.index), pause: pauseMs(m[1], m[2]) }); last = m.index + m[0].length; }
+  out.push({ text: t.slice(last), pause: 0 });
+  return out;
+}
+
+/* ---- 합성(캐시·같은 문장 동시 요청 합치기) ---- */
 const cache = new Map();
+const inflight = new Map();
 const MAX_CACHE = 600;
 async function synth(text, o, signal) {
   if (!ready) await loading; // 아직 불러오는 중이면 끝날 때까지 기다림
   if (!ready) throw new Error('엔진을 불러오지 못했어요');
   const k = keyOf(o, text);
   if (cache.has(k)) return cache.get(k);
+  // 같은 문장을 이미 만드는 중이면 그 결과를 기다림. 그쪽이 취소됐으면 직접 만듦
+  if (inflight.has(k)) {
+    try { return await inflight.get(k); } catch (e) { if (e?.name !== 'AbortError' || signal?.aborted) throw e; }
+  }
+  const p = synthRaw(text, o, signal, k);
+  inflight.set(k, p);
+  try { return await p; } finally { if (inflight.get(k) === p) inflight.delete(k); }
+}
+async function synthRaw(text, o, signal, k) {
   const a = AGES[o.age] || AGES.normal;
   const pitch = a.pitch * o.pitch;
-  const t0 = performance.now();
-  const raw = await tts.synth(speakable(applyTags(text, o.lang, o.tagMode), o.lang), { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed, signal });
-  const pcm = pitch === 1 ? raw : resample(raw, pitch);
-  const audio = pcm.length / tts.sampleRate;
-  if (audio > 0.2) rtf = rtf * 0.7 + ((performance.now() - t0) / 1000 / audio) * 0.3;
+  const sr = tts.sampleRate;
+  const parts = [];
+  const pieces = splitPauses(prepare(text, o));
+  for (let j = 0; j < pieces.length; j++) {
+    const sp = speakable(pieces[j].text, o.lang);
+    if (sp.replace(PUNCT_RE, '')) {
+      const raw = await tts.synth(sp, { voice: o.voice, lang: o.lang, steps: o.steps, speed: o.speed * a.speed / pitch, seed: o.seed + j * 101, signal });
+      parts.push(pitch === 1 ? raw : resample(raw, pitch));
+    }
+    if (pieces[j].pause) parts.push(new Float32Array(Math.round((pieces[j].pause / 1000) * sr)));
+  }
+  const pcm = new Float32Array(parts.reduce((n, p) => n + p.length, 0) || 1);
+  let off = 0; for (const p of parts) { pcm.set(p, off); off += p.length; }
   if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value);
   cache.set(k, pcm);
   return pcm;
@@ -200,7 +290,7 @@ function toWav(pcm) {
   return wavBytes(sr === tts.sampleRate ? p : resample(p, tts.sampleRate / sr), sr);
 }
 
-/* ---- ZIP(압축 없이 담기) ---- */
+/* ---- ZIP(압축 없이 담기, 파일 이름 UTF-8) ---- */
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = (u8) => { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 function zipBlob(files) {
@@ -225,6 +315,8 @@ function zipBlob(files) {
   e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
   return new Blob([...chunks, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
 }
+// ZIP 안 파일 이름: 001_민준_서버 없이 정말.wav (파일 이름에 못 쓰는 글자는 뺌)
+const fileSafe = (t, n = 24) => [...plain(t).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').replace(/[.,!?…。、，！？।؟]+$/u, '').trim()].slice(0, n).join('').trim().replace(/\s+/g, '_');
 function download(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
@@ -237,11 +329,20 @@ const stamp = () => { const d = new Date(); const p = (n) => String(n).padStart(
 let audioCtx = null;
 let source = null;
 let playing = null; // { pcm, start, dur }
+let lastWave = null;
 function ac() {
   try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (_) { /* 미지원 */ }
   audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
+}
+const isPaused = () => !!(playing && audioCtx && audioCtx.state === 'suspended');
+// 재생 버튼: 재생 중이면 일시정지 모양, 아니면 재생 모양
+function syncPlayBtn() {
+  const pauseLook = playing && !isPaused();
+  el.playCur.innerHTML = ic(pauseLook ? 'pause' : 'play');
+  el.playCur.setAttribute('aria-label', pauseLook ? '일시정지' : isPaused() ? '이어 듣기' : '듣기');
+  el.waveWrap.classList.toggle('paused', isPaused());
 }
 function playPcm(pcm, tailMs = 0, label = '') {
   const c = ac();
@@ -254,18 +355,26 @@ function playPcm(pcm, tailMs = 0, label = '') {
     source = c.createBufferSource();
     source.buffer = buf;
     source.connect(c.destination);
-    source.onended = () => { source = null; playing = null; drawWave(); resolve(); };
+    source.onended = () => { source = null; playing = null; drawWave(); syncPlayBtn(); resolve(); };
     source.start();
     playing = { pcm: p, start: c.currentTime, dur: p.length / tts.sampleRate };
-    el.nowText.textContent = label.replace(TAG_RE, '').trim();
-    drawWave(); animate();
+    el.nowText.textContent = plain(label);
+    drawWave(); animate(); syncPlayBtn();
   });
 }
 function stopSound() {
   if (source) { source.onended = null; try { source.stop(); } catch (_) { /* 끝남 */ } source = null; }
   playing = null;
+  if (audioCtx?.state === 'suspended') audioCtx.resume();
+  syncPlayBtn();
 }
-let lastWave = null;
+async function togglePause() {
+  if (!playing || !audioCtx) return false;
+  if (audioCtx.state === 'suspended') await audioCtx.resume(); else await audioCtx.suspend();
+  syncPlayBtn();
+  if (!isPaused()) animate();
+  return true;
+}
 function drawWave(progress = -1) {
   const cv = el.wave; const dpr = window.devicePixelRatio || 1;
   const w = cv.clientWidth; const h = cv.clientHeight;
@@ -289,18 +398,34 @@ function drawWave(progress = -1) {
   }
 }
 function animate() {
-  if (!playing || !audioCtx) return;
+  if (!playing || !audioCtx || isPaused()) return;
   drawWave(Math.min(1, (audioCtx.currentTime - playing.start) / playing.dur));
   requestAnimationFrame(animate);
 }
 addEventListener('resize', () => drawWave());
 
+/* ================= 글 넣기(되돌리기 기록 유지) ================= */
+// textarea.value 로 바꾸면 Ctrl+Z 기록이 사라지므로, 가능한 브라우저에서는 '입력'으로 넣음
+function replaceText(start, end, str) {
+  const ta = el.text;
+  ta.focus();
+  ta.setSelectionRange(start, end);
+  let ok = false;
+  if (str.length < 200000 && end - start < 400000) {
+    try { ok = str ? document.execCommand('insertText', false, str) : document.execCommand('delete'); } catch (_) { ok = false; }
+  }
+  if (!ok) { ta.setRangeText(str, start, end, 'end'); }
+  save(); refresh();
+}
+
 /* ================= 글 나누기 (위치 포함) ================= */
 // seg: { text, who, start, end (글자 위치), para (문단 끝), t (자막 시작 초) }
 const SRT_TIME = /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/;
 const toSec = (h, m, s, ms) => Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms.padEnd(3, '0')) / 1000;
+// 소리 낼 글이 없는 조각(태그·쉼 표기·문장부호뿐)
+const onlyMarks = (t) => !t.replace(TAG_RE, '').replace(PAUSE_RE, '').replace(PUNCT_RE, '');
 function parse(text) {
-  const segs = [];
+  const out = [];
   if (SRT_TIME.test(text)) {
     const re = /(^|\n)[^\n]*?(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*\n|$)/g;
     let m;
@@ -309,9 +434,9 @@ function parse(text) {
       const body = m[3].replace(/<\/?[ibu]>|\{[^}]*\}/g, '').replace(/\s*\n\s*/g, ' ').trim();
       if (!body) continue;
       const start = m.index + m[0].length - m[3].length;
-      segs.push({ text: body, start, end: start + m[3].length, t: toSec(t[1], t[2], t[3], t[4]) });
+      out.push({ text: body, start, end: start + m[3].length, t: toSec(t[1], t[2], t[3], t[4]) });
     }
-    return segs;
+    return out;
   }
   let pos = 0;
   const lines = text.split('\n');
@@ -319,40 +444,40 @@ function parse(text) {
     const raw = lines[li];
     const lineStart = pos;
     pos += raw.length + 1;
-    if (!raw.trim()) { if (segs.length) segs[segs.length - 1].para = true; continue; }
+    if (!raw.trim()) { if (out.length) out[out.length - 1].para = true; continue; }
     let body = raw; let off = 0;
     const md = body.match(/^(\s*(?:#+|[-*]|\d+[.)])\s+)/); // 마크다운 제목·목록 기호
     if (md) { off = md[1].length; body = body.slice(off); }
     let who = null;
     if (el.script.checked) {
-      const sm = body.match(/^([^:：]{1,24})\s*[:：]\s*/);
+      const sm = body.match(/^([^:：[\]]{1,24})\s*[:：]\s*/);
       if (sm) { who = sm[1].trim(); off += sm[0].length; body = body.slice(sm[0].length); }
     }
     // 문장 끝에서 자름(기준: sentences.js)
     let s0 = 0;
+    let lead = null; // 줄 앞의 태그·쉼 조각(다음 문장 앞에 붙임)
     const cut = (a, b) => {
       const piece = body.slice(a, b);
-      const lead = piece.length - piece.trimStart().length;
+      const sp = piece.length - piece.trimStart().length;
       const t = piece.trim();
       if (!t) return;
-      const start = lineStart + off + a + lead; const end = start + t.length;
-      // 태그만 있는 조각('…요. <laugh>')은 버리지 않고 같은 줄의 앞 문장 끝에 붙임. 줄 첫 조각이면 다음 문장 앞에 붙임
-      if (!t.replace(TAG_RE, '').replace(/[\s.,!?…。、，！？।؟]/g, '')) {
-        const prev = segs[segs.length - 1];
+      const start = lineStart + off + a + sp; const end = start + t.length;
+      // 태그·쉼만 있는 조각('…요. <laugh>', '…요. [1초]')은 같은 줄의 앞 문장 끝에 붙임. 줄 첫 조각이면 다음 문장 앞에 붙임
+      if (onlyMarks(t)) {
+        const prev = out[out.length - 1];
         if (prev && prev.end >= lineStart && prev.who === who) { prev.text += ` ${t}`; prev.end = end; }
-        else leadTags = leadTags ? { text: `${leadTags.text} ${t}`, start: leadTags.start } : { text: t, start };
+        else lead = lead ? { text: `${lead.text} ${t}`, start: lead.start } : { text: t, start };
         return;
       }
-      if (leadTags) { segs.push({ text: `${leadTags.text} ${t}`, who, start: leadTags.start, end }); leadTags = null; return; }
-      segs.push({ text: t, who, start, end });
+      if (lead) { out.push({ text: `${lead.text} ${t}`, who, start: lead.start, end }); lead = null; return; }
+      out.push({ text: t, who, start, end });
     };
-    let leadTags = null;
     for (const e of sentenceEnds(body)) { cut(s0, e); s0 = e; }
     cut(s0, body.length);
-    // 줄 전체가 태그뿐이면 바로 앞 문장 끝에 붙임
-    if (leadTags && segs.length) { const prev = segs[segs.length - 1]; prev.text += ` ${leadTags.text}`; }
+    // 줄 전체가 태그·쉼뿐이면 바로 앞 문장 끝에 붙임
+    if (lead && out.length) { const prev = out[out.length - 1]; prev.text += ` ${lead.text}`; }
   }
-  return segs;
+  return out;
 }
 
 /* ================= 대본: 인물 목소리 ================= */
@@ -376,9 +501,8 @@ function renderCast() {
     tip.textContent = "'이름: 대사' 형식의 줄이 없어요. 줄 앞에 이름과 쌍점(:)을 쓰면 인물마다 목소리를 따로 줄 수 있습니다.";
     const ex = document.createElement('button'); ex.type = 'button'; ex.textContent = '예시 넣기';
     ex.onclick = () => {
-      const t = el.text.value.replace(/\s+$/, '');
-      el.text.value = t ? `${t}\n\n${SCRIPT_SAMPLE}` : SCRIPT_SAMPLE;
-      save(); refresh(); el.text.focus();
+      const v = el.text.value; const t = v.replace(/\s+$/, '');
+      replaceText(t.length, v.length, t ? `\n\n${SCRIPT_SAMPLE}` : SCRIPT_SAMPLE);
     };
     el.cast.replaceChildren(head, tip, ex);
     return;
@@ -398,7 +522,7 @@ function renderCast() {
     const vs = document.createElement('select'); vs.setAttribute('aria-label', `${w} 목소리`);
     for (const v of VOICES) vs.add(new Option(VOICE_LABEL[v], v, false, v === c.voice));
     const as = document.createElement('select'); as.setAttribute('aria-label', `${w} 나이`);
-    for (const [k, l] of [['child', '아이'], ['normal', '보통'], ['adult', '어른'], ['old', '노인']]) as.add(new Option(l, k, false, k === c.age));
+    for (const [k, l] of AGE_LABEL) as.add(new Option(l, k, false, k === c.age));
     const pv = document.createElement('button'); pv.type = 'button'; pv.className = 'icon'; pv.innerHTML = ic('play'); pv.title = `${w} 목소리 듣기`;
     vs.onchange = () => { c.voice = vs.value; save(); renderSegs(); };
     as.onchange = () => { c.age = as.value; save(); renderSegs(); };
@@ -413,34 +537,86 @@ let segs = [];
 let refreshT = 0; // 글을 고친 뒤 목록을 다시 나누기까지의 대기
 const flush = () => { if (refreshT) refresh(); }; // 대기 중인 고침을 바로 반영
 let curIdx = -1;
+const openRows = new Set(); // ⋯ 로 펼친 문장(문장 키)
 const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const sel = (k, opts, cur) => {
+  const s = document.createElement('select'); s.dataset.k = k;
+  for (const [v, l] of opts) s.add(new Option(l, v, false, String(v) === String(cur ?? '')));
+  return s;
+};
+function makeRow(s, i) {
+  const k = segKey(s);
+  const li = document.createElement('li');
+  li.dataset.i = i;
+  const pcm = cached(s);
+  if (pcm) li.classList.add('done');
+  if (i === curIdx) li.classList.add('cur');
+  if (segOpt[k] && Object.keys(segOpt[k]).length) li.classList.add('custom');
+  const no = document.createElement('span'); no.className = 'no'; no.textContent = s.t != null ? fmt(s.t) : i + 1;
+  const tx = document.createElement('button'); tx.type = 'button'; tx.className = 'tx';
+  if (s.who && el.script.checked) { const b = document.createElement('b'); b.textContent = `${s.who} `; tx.append(b); }
+  tx.append(s.text);
+  // 아래 줄: 길이 + 다시 뽑기 후보(1·2·3)
+  const meta = document.createElement('span'); meta.className = 'meta';
+  const seed = optsFor(s).seed;
+  meta.title = `시드 #${seed}`;
+  const dur = document.createElement('span'); dur.textContent = pcm ? `${(pcm.length / tts.sampleRate).toFixed(1)}s` : '';
+  meta.append(dur);
+  const tk = takes[k];
+  if (tk?.length > 1) {
+    const box = document.createElement('span'); box.className = 'takes'; box.setAttribute('role', 'group'); box.setAttribute('aria-label', '다시 뽑기 후보');
+    tk.forEach((sd, n) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'take'; b.dataset.act = 'take'; b.dataset.seed = sd;
+      b.textContent = n + 1; b.title = `후보 ${n + 1} 듣기 (시드 #${sd})`;
+      b.setAttribute('aria-pressed', String(sd === seed));
+      box.append(b);
+    });
+    meta.append(box);
+  }
+  const acts = document.createElement('span'); acts.className = 'acts';
+  for (const [act, label, title] of [['play', 'play', '듣기'], ['re', 'reroll', '다시 뽑기 (후보 3개까지)'], ['more', 'more', '이 문장 설정·저장']]) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'icon'; b.dataset.act = act; b.innerHTML = ic(label); b.title = title; b.setAttribute('aria-label', title);
+    if (act === 'more') b.setAttribute('aria-expanded', String(openRows.has(k)));
+    acts.append(b);
+  }
+  li.append(no, tx, meta, acts);
+  if (openRows.has(k)) li.append(morePanel(s, k, seed)), li.classList.add('open');
+  return li;
+}
+// ⋯ 로 펼치는 문장별 설정: 목소리·빠르기·뒤 쉼, 이 문장 WAV 저장
+function morePanel(s, k, seed) {
+  const so = segOpt[k] || {};
+  const box = document.createElement('div'); box.className = 'more';
+  const field = (label, control) => { const l = document.createElement('label'); const t = document.createElement('span'); t.textContent = label; l.append(t, control); return l; };
+  box.append(
+    field('목소리', sel('voice', [['', '기본'], ...VOICES.map((v) => [v, VOICE_LABEL[v]])], so.voice)),
+    field('빠르기', sel('speed', [['', '기본'], ...SPEED_OPTS.map((v) => [v, `${v.toFixed(1)}×`])], so.speed)),
+    field('뒤 쉼', sel('gap', [['', '기본'], ...GAP_OPTS.map((v) => [v, v ? `${v / 1000}초` : '없음'])], so.gap)),
+  );
+  const row = document.createElement('span'); row.className = 'more-acts';
+  const dl = document.createElement('button'); dl.type = 'button'; dl.dataset.act = 'dl'; dl.innerHTML = `${ic('download')}<span>WAV</span>`; dl.title = '이 문장만 WAV 로 저장';
+  const rs = document.createElement('button'); rs.type = 'button'; rs.dataset.act = 'reset'; rs.textContent = '기본으로'; rs.disabled = !Object.keys(so).length;
+  const sd = document.createElement('span'); sd.className = 'muted'; sd.textContent = `시드 #${seed}`;
+  row.append(dl, rs, sd);
+  box.append(row);
+  return box;
+}
 function renderSegs() {
   const frag = document.createDocumentFragment();
-  segs.forEach((s, i) => {
-    const li = document.createElement('li');
-    li.dataset.i = i;
-    if (cached(s)) li.classList.add('done');
-    if (i === curIdx) li.classList.add('cur');
-    const no = document.createElement('span'); no.className = 'no'; no.textContent = s.t != null ? fmt(s.t) : i + 1;
-    const tx = document.createElement('button'); tx.type = 'button'; tx.className = 'tx';
-    if (s.who && el.script.checked) { const b = document.createElement('b'); b.textContent = `${s.who} `; tx.append(b); }
-    tx.append(s.text);
-    const pcm = cached(s);
-    const meta = document.createElement('span'); meta.className = 'meta';
-    meta.textContent = `${pcm ? `${(pcm.length / tts.sampleRate).toFixed(1)}s · ` : ''}#${optsFor(s).seed}${seedOver[segKey(s)] != null ? '*' : ''}`;
-    meta.title = '시드 (* = 다시 뽑은 시드)';
-    const acts = document.createElement('span'); acts.className = 'acts';
-    for (const [act, label, title] of [['play', 'play', '듣기'], ['re', 'reroll', '다시 뽑기(새 시드)'], ['dl', 'download', 'WAV 저장']]) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'icon'; b.dataset.act = act; b.innerHTML = ic(label); b.title = title; b.setAttribute('aria-label', title);
-      acts.append(b);
-    }
-    li.append(no, tx, meta, acts);
-    frag.append(li);
-  });
+  segs.forEach((s, i) => frag.append(makeRow(s, i)));
   el.segs.replaceChildren(frag);
-  const chars = el.text.value.replace(TAG_RE, '').length;
   showSegInfo();
-  el.count.textContent = `${chars.toLocaleString()}자`;
+  el.count.textContent = `${plain(el.text.value).length.toLocaleString()}자`;
+}
+// 한 줄만 다시 그림(재생 표시·키보드 위치 유지)
+function updateRow(i) {
+  const old = rowOf(i); const s = segs[i];
+  if (!old || !s) return;
+  const li = makeRow(s, i);
+  for (const c of ['busy', 'now', 'cur']) li.classList.toggle(c, old.classList.contains(c));
+  const focusAct = old.contains(document.activeElement) ? (document.activeElement.dataset.act || 'tx') : null;
+  old.replaceWith(li);
+  if (focusAct) (li.querySelector(focusAct === 'tx' ? '.tx' : `[data-act="${focusAct}"]`) || li.querySelector('.tx'))?.focus();
 }
 function showSegInfo() {
   const done = segs.filter((s) => cached(s)).length;
@@ -456,29 +632,55 @@ function refresh() {
 }
 const rowOf = (i) => el.segs.children[i];
 function mark(i, cls, on = true) { rowOf(i)?.classList.toggle(cls, on); }
-function markDone(i) {
-  const li = rowOf(i); const s = segs[i]; const pcm = s && cached(s);
-  if (!li || !pcm) return;
-  li.classList.add('done');
-  showSegInfo();
-  li.querySelector('.meta').textContent = `${(pcm.length / tts.sampleRate).toFixed(1)}s · #${optsFor(s).seed}${seedOver[segKey(s)] != null ? '*' : ''}`;
+function markDone(i) { if (segs[i] && cached(segs[i])) { updateRow(i); showSegInfo(); } }
+function setCursorTo(i) {
+  const s = segs[i]; if (!s) return;
+  el.text.setSelectionRange(s.start, s.start);
+  updateCursor();
 }
 el.segs.addEventListener('click', async (e) => {
   const li = e.target.closest('li'); if (!li) return;
-  const i = Number(li.dataset.i); const s = segs[i];
-  const act = e.target.closest('[data-act]')?.dataset.act;
-  if (!act) { // 문장 글자를 누르면 편집기 커서를 그 문장으로 옮기고 듣기
-    el.text.setSelectionRange(s.start, s.start);
-    updateCursor();
-    playSeg(i);
+  const i = Number(li.dataset.i); const s = segs[i]; if (!s) return;
+  const k = segKey(s);
+  const actEl = e.target.closest('[data-act]');
+  const act = actEl?.dataset.act;
+  if (!act) {
+    if (e.target.closest('.more')) return; // 펼친 설정 칸 안을 누른 것은 듣기가 아님
+    setCursorTo(i); playSeg(i); // 문장 글자를 누르면 편집기 커서를 그 문장으로 옮기고 듣기
     return;
   }
   if (act === 'play') playSeg(i);
   if (act === 're') reroll(i);
+  if (act === 'take') { seedOver[k] = Number(actEl.dataset.seed); save(); updateRow(i); playSeg(i); }
+  if (act === 'more') { if (openRows.has(k)) openRows.delete(k); else openRows.add(k); updateRow(i); }
+  if (act === 'reset') { delete segOpt[k]; save(); updateRow(i); showSegInfo(); }
   if (act === 'dl') {
-    try { download(new Blob([toWav(await synth(s.text, optsFor(s)))], { type: 'audio/wav' }), `tts-${stamp()}-${String(i + 1).padStart(3, '0')}.wav`); markDone(i); }
-    catch (err) { report(err); }
+    try {
+      const name = `tts-${stamp()}-${String(i + 1).padStart(3, '0')}.wav`;
+      download(new Blob([toWav(await synth(s.text, optsFor(s)))], { type: 'audio/wav' }), name); markDone(i);
+    } catch (err) { report(err); }
   }
+});
+// 문장별 설정 바꾸기
+el.segs.addEventListener('change', (e) => {
+  const s0 = e.target.closest('.more select'); if (!s0) return;
+  const i = Number(e.target.closest('li').dataset.i); const s = segs[i]; if (!s) return;
+  const k = segKey(s);
+  const so = { ...(segOpt[k] || {}) };
+  if (s0.value === '') delete so[s0.dataset.k]; else so[s0.dataset.k] = s0.dataset.k === 'voice' ? s0.value : Number(s0.value);
+  if (Object.keys(so).length) segOpt[k] = so; else delete segOpt[k];
+  save(); updateRow(i); showSegInfo();
+  rowOf(i)?.querySelector(`.more select[data-k="${s0.dataset.k}"]`)?.focus();
+});
+// 문장 목록 키보드: ↑↓ 이동(커서도 따라감), Enter 는 듣기(버튼 기본 동작)
+el.segs.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (!e.target.classList?.contains('tx')) return;
+  const i = Number(e.target.closest('li').dataset.i) + (e.key === 'ArrowDown' ? 1 : -1);
+  const li = rowOf(i); if (!li) return;
+  e.preventDefault();
+  li.querySelector('.tx').focus();
+  setCursorTo(i);
 });
 
 /* ================= 커서 ================= */
@@ -498,12 +700,14 @@ function updateCursor(silent = false) {
 for (const ev of ['click', 'keyup', 'select']) el.text.addEventListener(ev, () => updateCursor());
 
 /* ================= 듣기 ================= */
+// 듣기(run)와 모두 만들기·내보내기(build)는 따로 취소함: 만드는 동안에도 다른 문장을 들을 수 있음
 let runId = 0;
 let ctl = null;
+let buildCtl = null;
 const report = (e) => { if (e?.name !== 'AbortError') { console.error(e); setStatus(`실패: ${e.message}`, 'error'); } };
-function newRun() { runId++; ctl?.abort(); ctl = new AbortController(); stopSound(); setBuilding(false); for (const li of el.segs.querySelectorAll('.busy,.now')) li.classList.remove('busy', 'now'); return runId; }
-// 전체를 만드는 동안 내보내기·모두 만들기 버튼을 잠금(멈춤 버튼·Esc 로 취소)
-const BUILD_BTNS = ['saveWav', 'saveSrt', 'saveZip', 'saveSrt2', 'saveZip2', 'genAll'].map((id) => document.getElementById(id));
+function newRun() { runId++; ctl?.abort(); ctl = new AbortController(); stopSound(); for (const li of el.segs.querySelectorAll('.now')) li.classList.remove('now'); return runId; }
+// 만드는 동안 내보내기·모두 만들기 버튼을 잠금(멈춤 버튼·Esc 로 취소)
+const BUILD_BTNS = [el.saveWav, el.saveSrt, el.saveZip, el.saveSrt2, el.saveZip2, el.genAll];
 function setBuilding(on) { for (const b of BUILD_BTNS) b.disabled = on; el.stop.classList.toggle('attn', on); }
 
 async function playSeg(i) {
@@ -511,8 +715,9 @@ async function playSeg(i) {
   ac(); mark(i, 'busy');
   try {
     const pcm = await synth(s.text, optsFor(s), ctl.signal);
+    mark(i, 'busy', false);
     if (my !== runId) return;
-    markDone(i); mark(i, 'busy', false); mark(i, 'now');
+    markDone(i); mark(i, 'now');
     await playPcm(pcm, 0, s.text);
     mark(i, 'now', false);
   } catch (e) { mark(i, 'busy', false); report(e); }
@@ -520,15 +725,16 @@ async function playSeg(i) {
 async function playSelection() {
   flush();
   const { selectionStart: a, selectionEnd: b } = el.text;
-  const sel = el.text.value.slice(a, b).trim();
-  if (!sel) { if (curIdx >= 0) playSeg(curIdx); return; }
+  const picked = el.text.value.slice(a, b).trim();
+  if (!picked) { if (curIdx >= 0) playSeg(curIdx); return; }
   const my = newRun(); ac();
   try {
-    const o = optsFor({ text: sel });
-    const pcm = await synth(sel, o, ctl.signal);
-    if (my === runId) await playPcm(pcm, 0, sel);
+    const pcm = await synth(picked, optsFor({ text: picked }), ctl.signal);
+    if (my === runId) await playPcm(pcm, 0, picked);
   } catch (e) { report(e); }
 }
+// 재생 버튼: 재생 중이면 일시정지/이어 듣기, 아니면 커서 문장 듣기
+async function playButton() { if (!(await togglePause())) playSelection(); }
 async function playFrom(from = null) {
   flush();
   if (from == null) from = Math.max(0, curIdx); // 비우면 커서 문장부터
@@ -539,8 +745,8 @@ async function playFrom(from = null) {
   const get = (i) => {
     if (!pend.has(i)) {
       mark(i, 'busy');
-      const p = synth(segs[i].text, optsFor(segs[i]), sig).then((pcm) => { markDone(i); mark(i, 'busy', false); return pcm; });
-      p.catch(() => {});
+      const p = synth(segs[i].text, optsFor(segs[i]), sig).then((pcm) => { markDone(i); return pcm; });
+      p.catch(() => {}).finally(() => mark(i, 'busy', false));
       pend.set(i, p);
     }
     return pend.get(i);
@@ -557,16 +763,34 @@ async function playFrom(from = null) {
     }
   } catch (e) { report(e); }
 }
+// 다시 뽑기: 새 시드로 만들고, 이전 것은 후보로 남김(최근 3개)
 async function reroll(i) {
   const s = segs[i]; if (!s) return;
-  seedOver[segKey(s)] = Math.floor(Math.random() * 1000000);
-  save(); markDone(i);
-  rowOf(i).querySelector('.meta').textContent = `#${optsFor(s).seed}*`;
-  rowOf(i).classList.remove('done');
+  const k = segKey(s);
+  const cur = optsFor(s).seed;
+  const list = takes[k] ? [...takes[k]] : [cur];
+  if (!list.includes(cur)) list.push(cur);
+  const fresh = Math.floor(Math.random() * 1000000);
+  list.push(fresh);
+  // 3개를 넘으면 지금 고른 것과 새것을 빼고 가장 오래된 것부터 지움(번호 순서는 유지)
+  while (list.length > 3) list.splice(list.findIndex((x) => x !== cur && x !== fresh), 1);
+  takes[k] = list;
+  seedOver[k] = fresh;
+  save(); updateRow(i);
   await playSeg(i);
 }
-const gapAfter = (s) => Number(el.gap.value) + (s.para ? Number(el.para.value) : 0);
-function stopAll() { newRun(); el.nowText.textContent = ''; readyStatus(); idleWave(); }
+// 이 문장 뒤 쉼: 문장별 설정 > 문장 쉼(+ 문단 끝이면 문단 쉼)
+const gapAfter = (s) => {
+  const g = segOpt[segKey(s)]?.gap;
+  return g != null ? Number(g) : Number(el.gap.value) + (s.para ? Number(el.para.value) : 0);
+};
+function stopAll() {
+  const wasBuilding = !!buildCtl;
+  newRun(); buildCtl?.abort();
+  el.nowText.textContent = '';
+  if (wasBuilding) setStatus('만들기를 멈췄습니다 · 이미 만든 문장은 남아 있습니다', 'ok'); else readyStatus();
+  idleWave();
+}
 // 아직 아무것도 재생하지 않았으면 파형 칸에 안내
 function idleWave() {
   if (playing || lastWave) return;
@@ -577,96 +801,114 @@ function idleWave() {
 async function buildAll(label) {
   flush();
   if (!segs.length) throw new Error('글이 없어요');
-  const my = newRun(); const sig = ctl.signal;
+  if (buildCtl) throw new DOMException('이미 만드는 중', 'AbortError');
+  buildCtl = new AbortController(); const sig = buildCtl.signal;
+  const list = segs.slice(); // 만드는 동안 글을 고쳐도 시작할 때의 문장으로 만듦
   el.progress.hidden = false;
   setBuilding(true);
-  setStatus(`${label} 1/${segs.length}`, 'busy');
-  const total = segs.reduce((a, s) => a + s.text.length, 0);
+  setStatus(`${label} 1/${list.length}`, 'busy');
+  const total = list.reduce((a, s) => a + s.text.length, 0) || 1;
   let doneChars = 0; const t0 = performance.now();
   const parts = [];
   try {
-    for (let i = 0; i < segs.length; i++) {
-      mark(i, 'busy');
-      try { parts.push(await synth(segs[i].text, optsFor(segs[i]), sig)); } finally { mark(i, 'busy', false); }
-      markDone(i);
-      if (my !== runId) throw new DOMException('취소됨', 'AbortError');
-      doneChars += segs[i].text.length;
+    for (let i = 0; i < list.length; i++) {
+      if (sig.aborted) throw new DOMException('취소됨', 'AbortError');
+      const row = segs[i] === list[i] ? i : -1;
+      if (row >= 0) mark(row, 'busy');
+      try { parts.push(await synth(list[i].text, optsFor(list[i]), sig)); } finally { if (row >= 0) mark(row, 'busy', false); }
+      if (row >= 0) markDone(row);
+      doneChars += list[i].text.length;
       const frac = doneChars / total;
-      const el2 = (performance.now() - t0) / 1000;
-      const eta = frac > 0.02 ? el2 / frac - el2 : 0;
+      const sec = (performance.now() - t0) / 1000;
+      const eta = frac > 0.02 ? sec / frac - sec : 0;
       el.bar.style.width = `${frac * 100}%`;
-      setStatus(`${label} ${i + 1}/${segs.length}${eta ? ` · 남은 시간 약 ${Math.ceil(eta)}초` : ''}`, 'busy');
+      setStatus(`${label} ${i + 1}/${list.length}${eta ? ` · 남은 시간 약 ${Math.ceil(eta)}초` : ''}`, 'busy');
     }
-  } catch (e) {
-    if (e?.name === 'AbortError') readyStatus(); // 멈추거나 다른 듣기로 끊겼으면 진행 문구를 지움
-    throw e;
   } finally {
-    if (my === runId) setBuilding(false);
+    buildCtl = null;
+    setBuilding(false);
     setTimeout(() => { el.progress.hidden = true; el.bar.style.width = '0'; }, 600);
   }
   // 이어 붙일 위치: 자막이면 자막 시작 시간(앞이 길면 바로 뒤), 아니면 문장 쉼·문단 쉼
   const sr = tts.sampleRate;
-  const timed = segs[0].t != null;
+  const timed = list[0].t != null;
   let end = 0;
   const at = parts.map((p, i) => {
-    const st = timed ? Math.max(end, Math.round(segs[i].t * sr)) : end;
-    end = st + p.length + (timed ? 0 : Math.round((gapAfter(segs[i]) / 1000) * sr));
+    const st = timed ? Math.max(end, Math.round(list[i].t * sr)) : end;
+    end = st + p.length + (timed ? 0 : Math.round((gapAfter(list[i]) / 1000) * sr));
     return st;
   });
-  if (!timed) end -= Math.round((gapAfter(segs[segs.length - 1]) / 1000) * sr); // 마지막 뒤 쉼은 뺌
-  return { parts, at, total: Math.max(end, at[at.length - 1] + parts[parts.length - 1].length) };
+  if (!timed) end -= Math.round((gapAfter(list[list.length - 1]) / 1000) * sr); // 마지막 뒤 쉼은 뺌
+  return { list, parts, at, total: Math.max(end, at[at.length - 1] + parts[parts.length - 1].length) };
 }
-function srtOf({ parts, at }) {
+function srtOf({ list, parts, at }) {
   const sr = tts.sampleRate;
   const t = (x) => { const ms = Math.round((x / sr) * 1000); const p = (n, l = 2) => String(n).padStart(l, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
-  return segs.map((s, i) => `${i + 1}\n${t(at[i])} --> ${t(at[i] + parts[i].length)}\n${(s.who && el.script.checked ? `${s.who}: ` : '') + s.text.replace(TAG_RE, '').replace(/\s+/g, ' ').trim()}\n`).join('\n');
+  return list.map((s, i) => `${i + 1}\n${t(at[i])} --> ${t(at[i] + parts[i].length)}\n${(s.who && el.script.checked ? `${s.who}: ` : '') + plain(s.text)}\n`).join('\n');
 }
 async function exportWav() {
+  if (buildCtl) return;
   try {
     const r = await buildAll('WAV 만드는 중');
     const mix = new Float32Array(r.total);
     r.parts.forEach((p, i) => mix.set(p, r.at[i]));
     download(new Blob([toWav(mix)], { type: 'audio/wav' }), `tts-${stamp()}.wav`);
-    setStatus(`저장 · ${(r.total / tts.sampleRate / 60).toFixed(1)}분 · ${tts.backend}`);
+    setStatus(`WAV 저장 · ${(r.total / tts.sampleRate / 60).toFixed(1)}분 · ${tts.backend}`);
   } catch (e) { report(e); }
 }
 async function exportSrt() {
+  if (buildCtl) return;
   try {
     const r = await buildAll('자막 시간 계산 중');
     download(new Blob([srtOf(r)], { type: 'text/plain;charset=utf-8' }), `tts-${stamp()}.srt`);
-    setStatus(`자막 저장 · ${segs.length}개`);
+    setStatus(`자막 저장 · ${r.list.length}개`);
   } catch (e) { report(e); }
 }
 async function exportZip() {
+  if (buildCtl) return;
   try {
     const r = await buildAll('ZIP 만드는 중');
-    const files = r.parts.map((p, i) => ({ name: `${String(i + 1).padStart(3, '0')}${segs[i].who && el.script.checked ? `_${hash(segs[i].who)}` : ''}.wav`, data: toWav(p) }));
+    const files = r.parts.map((p, i) => {
+      const s = r.list[i];
+      const who = s.who && el.script.checked ? `${fileSafe(s.who, 12)}_` : '';
+      return { name: `${String(i + 1).padStart(3, '0')}_${who}${fileSafe(s.text) || 'line'}.wav`, data: toWav(p) };
+    });
     const enc = new TextEncoder();
     files.push({ name: 'timeline.srt', data: enc.encode(srtOf(r)) });
-    files.push({ name: 'script.txt', data: enc.encode(segs.map((s, i) => `${String(i + 1).padStart(3, '0')}\t${s.who || ''}\t${s.text}`).join('\n')) });
+    files.push({ name: 'script.txt', data: enc.encode(r.list.map((s, i) => `${String(i + 1).padStart(3, '0')}\t${s.who || ''}\t${s.text}`).join('\n')) });
     download(zipBlob(files), `tts-${stamp()}.zip`);
-    setStatus(`ZIP 저장 · 문장 ${segs.length}개`);
+    setStatus(`ZIP 저장 · 문장 ${r.list.length}개`);
   } catch (e) { report(e); }
 }
 async function generateAll() {
-  try { await buildAll('미리 만드는 중'); setStatus(`모두 만듦 · ${segs.length}개 · ${tts.backend}`); } catch (e) { report(e); }
+  if (buildCtl) return;
+  try { const r = await buildAll('미리 만드는 중'); setStatus(`모두 만듦 · ${r.list.length}개 · ${tts.backend}`); } catch (e) { report(e); }
 }
 
-/* ================= 태그 버튼 ================= */
-function insertTag(tag) {
+/* ================= 태그·쉼 버튼 ================= */
+// 커서 자리에 넣고 앞뒤 띄어쓰기를 맞춤: 앞 글자가 붙어 있으면 한 칸, 뒤가 공백·문장부호면 띄우지 않음
+function insertAtCursor(token) {
   const ta = el.text;
-  ta.focus();
   const s = ta.selectionStart; const e = ta.selectionEnd;
   const before = ta.value.slice(0, s); const after = ta.value.slice(e);
-  // 앞뒤 띄어쓰기를 맞춤: 앞 글자가 붙어 있으면 한 칸, 뒤가 공백·문장부호면 띄우지 않음
-  ta.setRangeText(`${before && !/\s$/.test(before) ? ' ' : ''}${tag}${!after || /^[\s.,!?…。，！？]/.test(after) ? '' : ' '}`, s, e, 'end');
-  ta.dispatchEvent(new Event('input'));
+  const pre = before && !/\s$/.test(before) ? ' ' : '';
+  replaceText(s, e, `${pre}${token}${!after || /^[\s.,!?…。，！？]/.test(after) ? '' : ' '}`);
+  return s + pre.length; // 넣은 표기의 시작 위치
+}
+function insertTag(tag) {
+  insertAtCursor(tag);
   // 문장 중간에 넣었으면 안내(태그는 문장 처음이나 끝에서 더 잘 됨)
-  const pos = ta.selectionStart;
-  const sb = ta.value.slice(0, pos).split(/[.!?…。！？।؟\n]/).pop().replace(TAG_RE, '').trim();
-  const sa = ta.value.slice(pos).split(/[.!?…。！？।؟\n]/)[0].replace(TAG_RE, '').trim();
+  const ta = el.text; const pos = ta.selectionStart;
+  const sb = plain(ta.value.slice(0, pos).split(/[.!?…。！？।؟\n]/).pop());
+  const sa = plain(ta.value.slice(pos).split(/[.!?…。！？।؟\n]/)[0]);
   if (sb && sa) setStatus('표현 태그는 문장 처음이나 끝에 둘 때 더 잘 됩니다');
   else if (!TAG_LANGS.includes(el.lang.value) && el.tagMode.value === 'auto') setStatus('이 언어는 태그를 빼고 읽습니다 (설정 › 소리 › 표현 태그)');
+}
+// 쉼 넣기: [1초] 를 넣고 숫자를 선택해 두어 바로 고쳐 쓸 수 있게 함
+function insertPause() {
+  const at = insertAtCursor('[1초]');
+  el.text.setSelectionRange(at + 1, at + 2);
+  setStatus('쉼 [1초] 를 넣었습니다 · 숫자를 바로 고쳐 쓰면 길이가 바뀝니다');
 }
 TAGS.forEach(([tag, , name, official], i) => {
   const b = document.createElement('button');
@@ -676,6 +918,15 @@ TAGS.forEach(([tag, , name, official], i) => {
   b.addEventListener('mousedown', (e) => e.preventDefault()); // 커서 위치 유지
   b.onclick = () => insertTag(tag);
   el.tagbar.append(b);
+  if (i === 2) { // 공식 태그 3개 뒤에 쉼 버튼
+    const p = document.createElement('button');
+    p.type = 'button'; p.className = 'btn tag pause-btn';
+    p.innerHTML = `${ic('pausemark')}<span class="tag-name">쉼</span>`;
+    p.title = '커서 자리에 쉼 [1초] 넣기 · 숫자를 고쳐 길이를 바꿈 (최대 10초)';
+    p.addEventListener('mousedown', (e) => e.preventDefault());
+    p.onclick = insertPause;
+    el.tagbar.append(p);
+  }
 });
 // 비공식 7개는 기본으로 숨기고 '실험' 단추로 펼침(Alt+4~0 단축키는 숨겨도 동작)
 const EXP_KEY = 'tts-studio:expTags';
@@ -693,11 +944,32 @@ expBtn.onclick = () => showExp(!el.tagbar.classList.contains('show-exp'));
 el.tagbar.append(expBtn);
 showExp(!!store.get(EXP_KEY, false));
 
+/* ================= 확인 창 ================= */
+// ask('제목', '내용', [['값','글자', 'primary'?]…]) → 누른 버튼의 값('' = 취소·Esc)
+function ask(title, msg, buttons) {
+  el.askTitle.textContent = title;
+  el.askMsg.textContent = msg;
+  el.askBtns.replaceChildren(...buttons.map(([v, label, cls]) => {
+    const b = document.createElement('button'); b.value = v; b.textContent = label; if (cls) b.className = cls; return b;
+  }));
+  el.ask.returnValue = '';
+  el.ask.showModal();
+  el.askBtns.querySelector('.primary')?.focus();
+  return new Promise((resolve) => el.ask.addEventListener('close', () => resolve(el.ask.returnValue || ''), { once: true }));
+}
+
 /* ================= 단축키 ================= */
 document.addEventListener('keydown', (e) => {
+  if (document.querySelector('dialog[open]')) return; // 창이 열려 있으면 창이 처리
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) playFrom(); else playSelection(); return; }
-  if (e.key === 'Escape' && !el.help.open) { stopAll(); closeSheet(); return; }
+  if (mod && e.key === 'Enter') {
+    const run = () => (e.shiftKey ? playFrom() : playSelection());
+    // 한글 조합 중이면 조합이 끝난 뒤(마지막 글자가 글에 들어간 뒤) 실행
+    if (e.isComposing || e.keyCode === 229) { el.text.addEventListener('compositionend', () => setTimeout(run, 0), { once: true }); return; }
+    e.preventDefault(); run(); return;
+  }
+  if (e.key === 'Escape') { stopAll(); closeSheet(); return; }
+  if (mod && e.shiftKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveProject(); return; }
   if (mod && (e.key === 's' || e.key === 'S')) { e.preventDefault(); exportWav(); return; }
   if (mod && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); el.file.click(); return; }
   if (e.altKey && (e.code === 'KeyR')) { e.preventDefault(); if (curIdx >= 0) reroll(curIdx); return; }
@@ -709,18 +981,92 @@ document.addEventListener('keydown', (e) => {
   if ((e.key === '?' || (e.shiftKey && e.code === 'Slash')) && !mod && !/textarea|input|select/i.test(document.activeElement?.tagName || '')) { e.preventDefault(); el.help.showModal(); }
 });
 
-/* ================= 파일 ================= */
+/* ================= 파일·프로젝트 ================= */
+function projectData() {
+  return {
+    type: PROJECT_TYPE, version: 1, saved: new Date().toISOString(),
+    text: el.text.value, script: el.script.checked, settings: settingsNow(),
+    cast: castMap, seedOver, takes, segOpt, dict,
+  };
+}
+function saveProject() {
+  // 내려받는 파일 이름은 영문만(일부 브라우저가 한글 이름을 버림)
+  download(new Blob([JSON.stringify(projectData(), null, 1)], { type: 'application/json' }), `tts-project-${stamp()}.json`);
+  setStatus('프로젝트 저장 · 열기로 다시 불러올 수 있습니다');
+}
+async function loadProject(p, name) {
+  if (el.text.value.trim() && (await ask('프로젝트 열기', `"${name}" 을 열면 지금 글과 설정이 바뀝니다. 지금 글을 남기려면 먼저 저장을 누르세요.`, [['', '취소'], ['open', '열기', 'primary']])) !== 'open') return;
+  if (p.settings) applySettings(p.settings);
+  el.script.checked = !!p.script;
+  castMap = p.cast || {}; seedOver = p.seedOver || {}; takes = p.takes || {}; segOpt = p.segOpt || {};
+  // 사전은 합침(같은 말은 프로젝트 것을 씀)
+  if (Array.isArray(p.dict)) {
+    const m = new Map(dict.map(([a, b]) => [String(a).trim().toLowerCase(), [a, b]]));
+    for (const [a, b] of p.dict) if (String(a || '').trim()) m.set(String(a).trim().toLowerCase(), [a, b]);
+    dict = [...m.values()]; store.set(DICT_KEY, dict); compileDict(); renderDict();
+  }
+  replaceText(0, el.text.value.length, String(p.text || ''));
+  setStatus(`프로젝트 열기 · ${name}`);
+}
 el.file.onchange = async () => {
-  const f = el.file.files[0]; if (!f) return;
-  if (f.size > 3_000_000) { setStatus('3MB가 넘는 파일은 열 수 없어요'); return; }
-  let t = await f.text();
+  const f = el.file.files[0]; el.file.value = '';
+  if (!f) return;
+  if (f.size > 3_000_000) { setStatus('3MB가 넘는 파일은 열 수 없어요', 'error'); return; }
+  let t = (await f.text()).replace(/\r\n?/g, '\n');
+  if (/\.json$/i.test(f.name) || /^\s*\{/.test(t)) {
+    let p = null; try { p = JSON.parse(t); } catch (_) { /* 글로 취급 */ }
+    if (p?.type === PROJECT_TYPE) { loadProject(p, f.name); return; }
+  }
   if (/\.vtt$/i.test(f.name)) t = t.replace(/^WEBVTT[^\n]*\n/, '');
-  el.text.value = t.replace(/\r\n?/g, '\n');
-  el.file.value = '';
-  save(); refresh();
-  setStatus(`열기 · ${f.name}`);
+  // 지금 글이 있으면 바꿀지, 끝에 붙일지 물어봄(Ctrl+Z 로도 되돌릴 수 있음)
+  let how = 'replace';
+  if (el.text.value.trim()) {
+    how = await ask('파일 열기', `"${f.name}" 을 어떻게 넣을까요? 지금 글이 있습니다.`, [['', '취소'], ['append', '끝에 붙이기'], ['replace', '바꾸기', 'primary']]);
+    if (!how) return;
+  }
+  const v = el.text.value;
+  if (how === 'append') { const base = v.replace(/\s+$/, ''); replaceText(base.length, v.length, `\n\n${t}`); }
+  else replaceText(0, v.length, t);
+  setStatus(`열기 · ${f.name}${how === 'append' ? ' (끝에 붙임)' : ''} · Ctrl+Z 로 되돌릴 수 있습니다`);
 };
-el.clearText.onclick = () => { if (el.text.value && !confirm('글을 모두 지울까요?')) return; el.text.value = ''; save(); refresh(); el.text.focus(); };
+el.saveProject.onclick = saveProject;
+el.clearText.onclick = async () => {
+  if (!el.text.value) return;
+  if ((await ask('글 모두 지우기', '편집기의 글을 모두 지울까요? 지운 뒤에도 Ctrl+Z 로 되돌릴 수 있습니다.', [['', '취소'], ['clear', '지우기', 'danger']])) !== 'clear') return;
+  replaceText(0, el.text.value.length, '');
+  setStatus('글을 지웠습니다 · Ctrl+Z 로 되돌릴 수 있습니다');
+};
+
+/* ================= 읽기 사전 화면 ================= */
+let dictSaveT = 0;
+function dictChanged() {
+  clearTimeout(dictSaveT);
+  dictSaveT = setTimeout(() => { store.set(DICT_KEY, dict); compileDict(); renderSoon(); }, 250);
+}
+function renderDict() {
+  el.dictList.replaceChildren(...dict.map((ent, n) => {
+    const row = document.createElement('div'); row.className = 'dict-row';
+    const a = document.createElement('input'); a.type = 'text'; a.value = ent[0] || ''; a.placeholder = '원래 글 (예: TTS)'; a.setAttribute('aria-label', '원래 글');
+    const arrow = document.createElement('span'); arrow.className = 'dict-arrow'; arrow.textContent = '→';
+    const b = document.createElement('input'); b.type = 'text'; b.value = ent[1] || ''; b.placeholder = '읽을 말'; b.setAttribute('aria-label', '읽을 말');
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'icon'; x.innerHTML = ic('x'); x.title = '이 항목 지우기'; x.setAttribute('aria-label', '이 항목 지우기');
+    a.oninput = () => { dict[n][0] = a.value; dictChanged(); };
+    b.oninput = () => { dict[n][1] = b.value; dictChanged(); };
+    x.onclick = () => { dict.splice(n, 1); renderDict(); dictChanged(); };
+    row.append(a, arrow, b, x);
+    return row;
+  }));
+}
+el.dictAdd.addEventListener('mousedown', (e) => e.preventDefault()); // 편집기 선택 유지
+el.dictAdd.onclick = () => {
+  // 편집기에서 선택한 글이 있으면 그 글을 원래 글로 넣음
+  const picked = plain(el.text.value.slice(el.text.selectionStart, el.text.selectionEnd));
+  const word = picked.length <= 40 ? picked : '';
+  dict.push([word, '']);
+  renderDict(); dictChanged();
+  const rows = el.dictList.querySelectorAll('.dict-row');
+  rows[rows.length - 1]?.querySelectorAll('input')[word ? 1 : 0]?.focus();
+};
 
 /* ================= 설정 시트(모바일) ================= */
 const isSheet = () => matchMedia('(max-width: 899px)').matches;
@@ -731,18 +1077,33 @@ el.closeSettings.onclick = closeSheet;
 el.sheetBackdrop.onclick = closeSheet;
 if (isSheet()) for (const d of el.settings.querySelectorAll('details')) d.open = d === el.settings.querySelector('details');
 
+/* ================= 화면 테마 ================= */
+const THEMES = [['auto', '자동'], ['light', '밝게'], ['dark', '어둡게']];
+function applyTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  const label = THEMES.find(([k]) => k === t)?.[1] || '자동';
+  el.themeBtn.innerHTML = ic(`theme-${THEMES.some(([k]) => k === t) ? t : 'auto'}`);
+  el.themeBtn.title = `화면 테마: ${label} (누르면 바뀜)`;
+  drawWave();
+}
+el.themeBtn.onclick = () => {
+  const cur = store.get(THEME_KEY, 'auto');
+  const next = THEMES[(THEMES.findIndex(([k]) => k === cur) + 1) % THEMES.length][0];
+  store.set(THEME_KEY, next); applyTheme(next);
+};
+
 /* ================= 설정 변경 ================= */
 // 밀대를 끄는 동안 input 이 계속 오므로, 문장 목록은 화면 그리기 한 번에 한 번만 다시 그림(긴 글에서 끊김 방지)
 let renderQ = 0;
-const renderSoon = () => { if (!renderQ) renderQ = requestAnimationFrame(() => { renderQ = 0; renderSegs(); }); };
+function renderSoon() { if (!renderQ) renderQ = requestAnimationFrame(() => { renderQ = 0; renderSegs(); }); }
 for (const k of SET_KEYS) el[k].addEventListener('input', () => { showOutputs(); save(); renderSoon(); });
 el.norm.onchange = save;
 el.dice.onclick = () => { el.seed.value = String(Math.floor(Math.random() * 1000000)); el.seed.dispatchEvent(new Event('input')); };
 el.resetSet.onclick = () => { applySettings(DEFAULTS); el.norm.checked = false; save(); renderSegs(); };
 el.preview.onclick = async () => {
-  const sample = { ko: '안녕하세요, 이 목소리로 읽어 드릴게요.', ja: 'こんにちは、この声で読みます。', na: 'Hello, I will read with this voice.' }[el.lang.value] || 'Hello, I will read with this voice.';
+  const sample = SAMPLES[el.lang.value] || SAMPLES.en;
   const my = newRun(); ac();
-  try { const pcm = await synth(sample, optsFor({ text: sample })); if (my === runId) await playPcm(pcm, 0, sample); } catch (e) { report(e); }
+  try { const pcm = await synth(sample, optsFor({ text: sample }), ctl.signal); if (my === runId) await playPcm(pcm, 0, sample); } catch (e) { report(e); }
 };
 el.text.addEventListener('input', () => { save(); clearTimeout(refreshT); refreshT = setTimeout(refresh, 250); });
 el.script.onchange = () => { save(); refresh(); };
@@ -780,7 +1141,7 @@ el.preset.onchange = () => { const ps = store.get(PRESET_KEY, {}); if (ps[el.pre
   };
   for (const o of el.model.options) o.dataset.label = o.textContent;
   el.clearModels.onclick = async () => {
-    if (!confirm('받아 둔 모델 파일을 지울까요? 다음에 열 때 다시 받습니다.')) return;
+    if ((await ask('받은 모델 지우기', '기기에 받아 둔 모델 파일을 지울까요? 다음에 열 때 다시 받습니다.', [['', '취소'], ['clear', '지우기', 'danger']])) !== 'clear') return;
     try { for (const k of await caches.keys()) if (k.startsWith('supertonic')) await caches.delete(k); } catch (_) { /* 미지원 */ }
     location.reload();
   };
@@ -808,20 +1169,22 @@ async function refreshModelInfo() {
 }
 
 /* ---- 버튼 ---- */
-el.playCur.onclick = () => playSelection();
+el.playCur.onclick = playButton;
 el.playFrom.onclick = () => playFrom();
 el.stop.onclick = stopAll;
 el.saveWav.onclick = exportWav;
 el.saveSrt.onclick = exportSrt;
 el.saveZip.onclick = exportZip;
-document.getElementById('saveSrt2').onclick = exportSrt;
-document.getElementById('saveZip2').onclick = exportZip;
+el.saveSrt2.onclick = exportSrt;
+el.saveZip2.onclick = exportZip;
 el.genAll.onclick = generateAll;
 el.helpBtn.onclick = () => el.help.showModal();
 
 /* ================= 시작 ================= */
 load();
+applyTheme(store.get(THEME_KEY, 'auto'));
 renderPresets();
+renderDict();
 showOutputs();
 refresh();
 drawWave();

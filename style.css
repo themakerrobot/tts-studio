@@ -52,6 +52,8 @@ button:active { transform: translateY(0.5px); }
 button:disabled { opacity: 0.45; cursor: default; background: var(--pane); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 button.primary:hover { filter: brightness(1.08); }
+button.danger { background: var(--err); border-color: var(--err); color: #fff; font-weight: 600; }
+button.danger:hover { filter: brightness(1.08); }
 .icon { width: 30px; padding: 0; border-color: transparent; background: transparent; color: var(--soft); }
 .icon:hover { color: var(--ink); background: var(--hover); }
 .icon.boxed { border-color: var(--line); background: var(--pane); }
@@ -73,6 +75,8 @@ kbd {
   display: inline-block; min-width: 1.6em; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px;
   border-radius: 4px; background: var(--head); font: 0.82em/1.6 var(--mono); text-align: center;
 }
+
+code { padding: 0 4px; border-radius: 3px; background: var(--head); border: 1px solid var(--line-soft); font: 0.86em var(--mono); }
 
 /* ── 머리줄 ── */
 .top {
@@ -135,6 +139,20 @@ kbd {
 }
 .settings details[open] > summary::before { transform: rotate(45deg); }
 .fields { display: grid; gap: 10px; padding: 2px 12px 14px; }
+.badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent); font: 600 0.7rem var(--mono);
+}
+.badge:empty { display: none; }
+.dict { display: grid; gap: 6px; }
+.dict:empty { display: none; }
+.dict-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 30px; gap: 4px; align-items: center; }
+.dict-row input {
+  height: 30px; min-width: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--field);
+}
+.dict-row input:hover { border-color: var(--faint); }
+.dict-arrow { color: var(--faint); font-size: 0.85rem; }
+.fields > button { justify-self: start; }
 .f { display: grid; gap: 4px; font-size: 0.86rem; }
 .f > span:first-child { color: var(--soft); font-size: 0.8rem; }
 .f > select, .f > input[type="number"] { width: 100%; }
@@ -165,6 +183,8 @@ kbd {
   border-radius: 3px; background: var(--head); color: var(--faint); font: 0.68rem var(--mono);
 }
 .tag.unofficial { border-style: dashed; color: var(--soft); }
+.pause-btn { padding: 0 8px 0 6px; gap: 4px; color: var(--accent); }
+.pause-btn .ic { width: 14px; height: 14px; }
 .tagbar:not(.show-exp) .tag.unofficial { display: none; }
 .exp-toggle { border-color: transparent; background: transparent; color: var(--faint); font-size: 0.78rem; }
 .exp-toggle:hover { color: var(--ink); }
@@ -218,9 +238,29 @@ kbd {
   padding: 2px 4px; border-radius: 4px; font-size: 0.9rem; line-height: 1.5;
 }
 .segs .tx:hover { background: transparent; color: var(--accent); }
-.segs .meta { grid-area: meta; padding: 0 4px; color: var(--faint); font: 0.7rem var(--mono); font-variant-numeric: tabular-nums; }
+.segs .meta {
+  grid-area: meta; min-height: 1.4em; display: flex; align-items: center; gap: 8px; padding: 0 4px;
+  color: var(--faint); font: 0.7rem var(--mono); font-variant-numeric: tabular-nums;
+}
+.takes { display: inline-flex; gap: 2px; }
+.take {
+  height: 18px; min-width: 20px; padding: 0 5px; border-radius: 9px; border-color: var(--line-soft);
+  background: transparent; color: var(--faint); font: 0.68rem var(--mono);
+}
+.take[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.segs li.custom .no::after { content: ""; display: block; width: 5px; height: 5px; margin: 3px 0 0 auto; border-radius: 50%; background: var(--accent); }
+.segs li.open { grid-template-areas: "no tx acts" "no meta acts" "more more more"; background: var(--hover); }
+.segs .more {
+  grid-area: more; display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 6px 0 2px 3.4em; padding: 8px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--pane);
+}
+.segs .more label { display: grid; gap: 2px; font-size: 0.74rem; color: var(--soft); }
+.segs .more select { height: 28px; padding: 0 4px; font-size: 0.84rem; }
+.more-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.more-acts button { height: 28px; }
 .segs .acts { grid-area: acts; display: flex; gap: 0; opacity: 0.55; }
-.segs li:hover .acts, .segs li.cur .acts, .segs li.now .acts { opacity: 1; }
+.segs li:hover .acts, .segs li.cur .acts, .segs li.now .acts, .segs li.open .acts, .segs li:focus-within .acts { opacity: 1; }
+.segs [data-act="more"][aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
 
 /* ── 재생·내보내기 막대 ── */
 .transport {
@@ -241,6 +281,8 @@ kbd {
 }
 #wave { display: block; width: 100%; height: 22px; }
 .now-text { font-size: 0.72rem; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 1.3em; }
+.wave-wrap.paused { border-color: var(--warn); }
+.wave-wrap.paused .now-text::before { content: "일시정지 · "; color: var(--warn); font-weight: 600; }
 .exports { display: flex; gap: 6px; flex: none; }
 .exports button { height: 36px; }
 .transport > .tbtn { border-radius: var(--r); height: 36px; }
@@ -258,6 +300,10 @@ dialog.help table { border-collapse: collapse; width: 100%; font-size: 0.88rem; 
 dialog.help td { padding: 6px 4px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 dialog.help td:first-child { white-space: nowrap; padding-right: 16px; }
 dialog.help .hint { margin-bottom: 8px; }
+dialog.ask { width: min(420px, calc(100vw - 24px)); }
+.ask-msg { margin: 4px 0 16px; line-height: 1.6; }
+.ask-btns { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.ask-btns button { height: 34px; padding: 0 14px; }
 
 /* ── 중간 폭: 설정 | 편집기, 문장 목록은 편집기 아래 ── */
 @media (max-width: 1199px) and (min-width: 900px) {
@@ -310,6 +356,7 @@ dialog.help .hint { margin-bottom: 8px; }
   .narrow-only { display: inline-flex; }
   .wave-wrap { padding: 0 6px; }
   .segs li { grid-template-columns: 2.6em minmax(0, 1fr) auto; }
+  .segs .more { margin-left: 2.6em; }
 }
 /* 가로로 눕힌 휴대폰: 편집기 높이를 화면에 맞춤 */
 @media (max-width: 899px) and (max-height: 480px) {
