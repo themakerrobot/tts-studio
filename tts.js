@@ -12,24 +12,26 @@ ort.env.wasm.numThreads = self.crossOriginIsolated
 // 모델 위치 후보. 위에서부터 차례로 시도하고, 파일이 없거나 구성이 다르면 다음 후보로 넘어감.
 //  1) ./assets            자체 호스팅(있을 때만)
 //  2) edge-lab            leeyunjai/edge-lab 저장소의 tts/ 폴더
-//  3) 공식 아카이브        supertone-oss-archive/supertonic-3 고정 리비전
+//  3) 공식 원본          supertone-oss-archive/supertonic-3 고정 리비전
 // 주소 뒤에 ?model=계정/저장소[@리비전][/하위/폴더] 를 붙이면 그 위치를 가장 먼저 시도. 예: ?model=leeyunjai/edge-lab@main/tts
 // 각 위치 안의 구성은 두 가지를 모두 받음: <위치>/onnx/*.onnx 또는 <위치>/*.onnx (목소리는 <위치>/voice_styles/*.json)
 const hf = (repo, rev, path = '') => `https://huggingface.co/${repo}/resolve/${rev}${path ? `/${path}` : ''}`;
-const EDGE_LAB = { name: 'edge-lab', base: hf('leeyunjai/edge-lab', 'main', 'tts') };
+const EDGE_LAB = { name: '32비트', base: hf('leeyunjai/edge-lab', 'main', 'tts') };
 // 8비트 변환본(tools/convert_models.py). WASM(CPU)용: 가볍고 CPU 정수 연산이라 휴대폰에 유리.
 // WebGPU에서는 8비트 연산(MatMulInteger/ConvInteger)을 GPU가 못 해서 CPU로 넘겨 매우 느려지므로 32비트를 먼저 씀.
 // INT8_REV: 8비트 파일을 다시 올리면 그 커밋 해시로 바꿀 것 → 주소가 바뀌어 모든 기기가 새 파일을 받고 예전 파일은 정리됨
 // 71800e5 = vocoder 만 32비트로 둔 변환본(--keep vocoder, 약 177MB). 전부 8비트는 vocoder 에서 잡음이 나서 안 씀.
 // 짧은 해시를 HF가 못 알아들으면 main 으로 넘어감(EDGE_LAB_INT8_MAIN).
 const INT8_REV = '71800e5';
-const EDGE_LAB_INT8 = { name: 'edge-lab 8비트', base: hf('leeyunjai/edge-lab', INT8_REV, 'tts-int8') };
-const EDGE_LAB_INT8_MAIN = { name: 'edge-lab 8비트(main)', base: hf('leeyunjai/edge-lab', 'main', 'tts-int8') };
+const EDGE_LAB_INT8 = { name: '8비트', base: hf('leeyunjai/edge-lab', INT8_REV, 'tts-int8') };
+const EDGE_LAB_INT8_MAIN = { name: '8비트(main)', base: hf('leeyunjai/edge-lab', 'main', 'tts-int8') };
 const OFFICIAL = {
-  name: '공식 아카이브',
+  name: '공식 원본',
   base: hf('supertone-oss-archive/supertonic-3', 'aafc6e32416a594460b32413efc49d7fe4ce6d46'),
 };
 const LOCAL = { name: '자체 호스팅', base: './assets', local: true };
+// 기기에 남겨 두는 모델(설정 › 엔진에서 고를 수 있는 3종). app.js 의 MODELS 와 같은 위치
+const KEEP_MODELS = [EDGE_LAB, EDGE_LAB_INT8, OFFICIAL];
 
 // search: 페이지 주소의 ?… 부분. 워커 안에서는 location 이 워커 파일 주소라서 페이지에서 넘겨받음.
 // small: 8비트 먼저(WASM, 또는 WebGPU라도 휴대폰·태블릿이면 — 받는 양·메모리를 줄이려고). 아니면 32비트 먼저
@@ -47,7 +49,9 @@ function modelSources(search = self.location?.search || '', small = true) {
     : [LOCAL, EDGE_LAB_INT8, EDGE_LAB_INT8_MAIN, EDGE_LAB, OFFICIAL];
   // ?model= 로 지정한 위치를 먼저 시도하고, 실패하면 기본 후보로 넘어감. &strict=1 이면 그 위치만 씀(다른 모델로 넘어가지 않음)
   if (m) {
-    const pick = { name: q, base: hf(m[1], m[2] || 'main', m[3] || '') };
+    const base = hf(m[1], m[2] || 'main', m[3] || '');
+    // 기본 모델 3종이면 화면에 저장소 주소 대신 이름을 보여 줌
+    const pick = { name: KEEP_MODELS.find((k) => k.base === base)?.name || q, base };
     if (new URLSearchParams(search).get('strict')) return [pick];
     list.unshift(pick);
   }
@@ -336,12 +340,14 @@ export class SupertonicTTS {
     }
     if (!this.sessions) throw new Error(`모델을 찾지 못했어요. ${tried.join(' / ')}`);
 
-    // 지금 쓰는 4개 파일이 아닌 예전 모델 파일(32비트, 다른 리비전 등)은 기기 저장소에서 지움
+    // 기본 모델 3종(32비트·8비트·공식 원본)은 엔진을 바꿔도 다시 받지 않도록 남겨 둠.
+    // 그 밖의 모델 파일(예전 리비전, 8비트 main 대체본, 지금 안 쓰는 ?model= 위치)만 기기 저장소에서 지움
     try {
       const cache = await openCache();
       const inUse = new Set(names.map(([, file]) => `${this.onnxDir}/${file}`));
+      const keep = KEEP_MODELS.map((s) => `${s.base}/`);
       for (const req of (await cache?.keys()) || []) {
-        if (req.url.endsWith('.onnx') && !inUse.has(req.url)) {
+        if (req.url.endsWith('.onnx') && !inUse.has(req.url) && !keep.some((b) => req.url.startsWith(b))) {
           await cache.delete(req);
           console.info(`[tts] 쓰지 않는 예전 모델 파일 정리: ${req.url.split('/').slice(-3).join('/')}`);
         }

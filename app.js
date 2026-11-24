@@ -43,7 +43,7 @@ const ids = ['engine', 'helpBtn', 'settings', 'closeSettings', 'sheetBackdrop', 
   'preset', 'savePreset', 'delPreset', 'speed', 'pitch', 'steps', 'seed', 'dice', 'tagMode', 'gap', 'para', 'gain', 'norm', 'rate',
   'resetSet', 'model', 'ep', 'applyEngine', 'clearModels', 'file', 'script', 'clearText', 'tagbar', 'text', 'cast', 'count',
   'cursorInfo', 'segInfo', 'genAll', 'segs', 'playCur', 'playFrom', 'stop', 'wave', 'nowText', 'saveWav', 'saveSrt', 'saveZip',
-  'bar', 'help'];
+  'bar', 'help', 'modelInfo'];
 const el = Object.fromEntries(ids.map((k) => [k, $(k)]));
 el.progress = document.querySelector('.progress');
 for (const k of ['speed', 'pitch', 'steps', 'gap', 'para', 'gain']) el[`${k}Out`] = $(`${k}Out`);
@@ -94,13 +94,15 @@ function showOutputs() {
 /* ================= 엔진 ================= */
 const tts = await createTTS();
 let ready = false;
-const setStatus = (m) => { el.engine.textContent = m; };
-const readyStatus = () => { if (ready) setStatus(`준비 · ${tts.backend} · ${tts.source || ''}`); };
+// 상태 문구 + 왼쪽 표시등(load 준비 중 / ok 준비됨 / busy 만드는 중 / error 실패)
+const setStatus = (m, state = ready ? 'ok' : 'load') => { el.engine.textContent = m; el.engine.dataset.state = state; el.engine.title = m; };
+const readyStatus = () => { if (ready) setStatus(`준비 · ${tts.backend} · ${tts.source || ''}`, 'ok'); };
 let rtf = 0.5; // 남은 시간 어림용(합성 초 / 음성 초), 실제 값으로 갱신
 const loading = tts.load(setStatus).then(() => {
   ready = true;
   readyStatus();
-},(e) => { console.error(e); setStatus(`엔진을 불러오지 못했어요: ${e.message}`); });
+  refreshModelInfo();
+}, (e) => { console.error(e); setStatus(`엔진을 불러오지 못했어요: ${e.message}`, 'error'); refreshModelInfo(); });
 
 const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) % 1000000; };
 // 낭독용 표기: 검열 표시(××)는 한국어에서만 '모모'로 읽고, 책 제목 괄호는 소리 내지 않음
@@ -354,18 +356,42 @@ function parse(text) {
 }
 
 /* ================= 대본: 인물 목소리 ================= */
+// 새 인물 기본 목소리: 해설(기본 목소리)과 겹치지 않게, 남성·여성을 번갈아
+const castOrder = () => {
+  const pick = (g) => VOICES.filter((v) => v[0] === g && v !== el.voice.value);
+  const m = pick('M'); const f = pick('F');
+  return Array.from({ length: Math.max(m.length, f.length) }, (_, i) => [m[i], f[i]]).flat().filter(Boolean);
+};
+// 이름 없는 첫 줄은 기본 목소리(해설)로 읽힘
+const SCRIPT_SAMPLE = '두 사람이 마주 앉았습니다.\n민준: 오늘 녹음 준비됐어?\n서연: 응, 바로 시작하자.';
 function renderCast() {
   const who = el.script.checked ? [...new Set(segs.map((s) => s.who).filter(Boolean))] : [];
-  el.cast.hidden = !who.length;
-  if (!who.length) { el.cast.replaceChildren(); return; }
+  el.cast.hidden = !el.script.checked;
+  if (!el.script.checked) { el.cast.replaceChildren(); return; }
+  const head = document.createElement('span'); head.className = 'cast-head';
+  head.innerHTML = `${ic('users')}<span>인물</span>`;
+  if (!who.length) {
+    // 대본 모드인데 '이름: 대사' 줄이 없음 → 체크해도 바뀌는 게 없으므로 형식을 알려 줌
+    const tip = document.createElement('span'); tip.className = 'cast-tip';
+    tip.textContent = "'이름: 대사' 형식의 줄이 없어요. 줄 앞에 이름과 쌍점(:)을 쓰면 인물마다 목소리를 따로 줄 수 있습니다.";
+    const ex = document.createElement('button'); ex.type = 'button'; ex.textContent = '예시 넣기';
+    ex.onclick = () => {
+      const t = el.text.value.replace(/\s+$/, '');
+      el.text.value = t ? `${t}\n\n${SCRIPT_SAMPLE}` : SCRIPT_SAMPLE;
+      save(); refresh(); el.text.focus();
+    };
+    el.cast.replaceChildren(head, tip, ex);
+    return;
+  }
+  const order = castOrder();
   const used = new Set(who.map((w) => castMap[w]?.voice).filter(Boolean));
   for (const w of who) {
     if (castMap[w]) continue;
-    const v = VOICES.find((x) => !used.has(x)) || VOICES[who.indexOf(w) % VOICES.length];
+    const v = order.find((x) => !used.has(x)) || order[who.indexOf(w) % order.length];
     used.add(v);
     castMap[w] = { voice: v, age: /아이|꼬마|아기|소년|소녀|child|boy|girl|kid/i.test(w) ? 'child' : /할머니|할아버지|노인|grand|old/i.test(w) ? 'old' : 'normal' };
   }
-  el.cast.replaceChildren(...who.map((w) => {
+  el.cast.replaceChildren(head, ...who.map((w) => {
     const c = castMap[w];
     const chip = document.createElement('span'); chip.className = 'chip';
     const n = document.createElement('b'); n.textContent = w;
@@ -419,6 +445,7 @@ function renderSegs() {
 function showSegInfo() {
   const done = segs.filter((s) => cached(s)).length;
   el.segInfo.textContent = segs.length ? `${segs.length}개 · 만듦 ${done}${segs[0]?.t != null ? ' · 자막 시간' : ''}` : '';
+  idleWave();
 }
 function refresh() {
   clearTimeout(refreshT); refreshT = 0;
@@ -473,8 +500,11 @@ for (const ev of ['click', 'keyup', 'select']) el.text.addEventListener(ev, () =
 /* ================= 듣기 ================= */
 let runId = 0;
 let ctl = null;
-const report = (e) => { if (e?.name !== 'AbortError') { console.error(e); setStatus(`실패: ${e.message}`); } };
-function newRun() { runId++; ctl?.abort(); ctl = new AbortController(); stopSound(); for (const li of el.segs.querySelectorAll('.busy,.now')) li.classList.remove('busy', 'now'); return runId; }
+const report = (e) => { if (e?.name !== 'AbortError') { console.error(e); setStatus(`실패: ${e.message}`, 'error'); } };
+function newRun() { runId++; ctl?.abort(); ctl = new AbortController(); stopSound(); setBuilding(false); for (const li of el.segs.querySelectorAll('.busy,.now')) li.classList.remove('busy', 'now'); return runId; }
+// 전체를 만드는 동안 내보내기·모두 만들기 버튼을 잠금(멈춤 버튼·Esc 로 취소)
+const BUILD_BTNS = ['saveWav', 'saveSrt', 'saveZip', 'saveSrt2', 'saveZip2', 'genAll'].map((id) => document.getElementById(id));
+function setBuilding(on) { for (const b of BUILD_BTNS) b.disabled = on; el.stop.classList.toggle('attn', on); }
 
 async function playSeg(i) {
   const my = newRun(); const s = segs[i]; if (!s) return;
@@ -536,7 +566,12 @@ async function reroll(i) {
   await playSeg(i);
 }
 const gapAfter = (s) => Number(el.gap.value) + (s.para ? Number(el.para.value) : 0);
-function stopAll() { newRun(); el.nowText.textContent = ''; readyStatus(); }
+function stopAll() { newRun(); el.nowText.textContent = ''; readyStatus(); idleWave(); }
+// 아직 아무것도 재생하지 않았으면 파형 칸에 안내
+function idleWave() {
+  if (playing || lastWave) return;
+  el.nowText.textContent = segs.length ? '재생하면 여기에 파형이 나타납니다' : '';
+}
 
 /* ================= 전체 만들기·내보내기 ================= */
 async function buildAll(label) {
@@ -544,6 +579,8 @@ async function buildAll(label) {
   if (!segs.length) throw new Error('글이 없어요');
   const my = newRun(); const sig = ctl.signal;
   el.progress.hidden = false;
+  setBuilding(true);
+  setStatus(`${label} 1/${segs.length}`, 'busy');
   const total = segs.reduce((a, s) => a + s.text.length, 0);
   let doneChars = 0; const t0 = performance.now();
   const parts = [];
@@ -558,12 +595,13 @@ async function buildAll(label) {
       const el2 = (performance.now() - t0) / 1000;
       const eta = frac > 0.02 ? el2 / frac - el2 : 0;
       el.bar.style.width = `${frac * 100}%`;
-      setStatus(`${label} ${i + 1}/${segs.length}${eta ? ` · 남은 시간 약 ${Math.ceil(eta)}초` : ''}`);
+      setStatus(`${label} ${i + 1}/${segs.length}${eta ? ` · 남은 시간 약 ${Math.ceil(eta)}초` : ''}`, 'busy');
     }
   } catch (e) {
     if (e?.name === 'AbortError') readyStatus(); // 멈추거나 다른 듣기로 끊겼으면 진행 문구를 지움
     throw e;
   } finally {
+    if (my === runId) setBuilding(false);
     setTimeout(() => { el.progress.hidden = true; el.bar.style.width = '0'; }, 600);
   }
   // 이어 붙일 위치: 자막이면 자막 시작 시간(앞이 길면 바로 뒤), 아니면 문장 쉼·문단 쉼
@@ -740,11 +778,40 @@ el.preset.onchange = () => { const ps = store.get(PRESET_KEY, {}); if (ps[el.pre
     if (el.ep.value !== 'auto') p.set('ep', el.ep.value);
     location.search = p.toString();
   };
+  for (const o of el.model.options) o.dataset.label = o.textContent;
   el.clearModels.onclick = async () => {
     if (!confirm('받아 둔 모델 파일을 지울까요? 다음에 열 때 다시 받습니다.')) return;
     try { for (const k of await caches.keys()) if (k.startsWith('supertonic')) await caches.delete(k); } catch (_) { /* 미지원 */ }
     location.reload();
   };
+}
+
+/* ---- 저장된 모델 표시 ---- */
+// tts.js 의 Cache Storage 이름(CACHE_NAME)과 같아야 함
+const MODEL_CACHE = 'supertonic3-aafc6e3';
+const hfBase = (spec) => {
+  const m = spec.match(/^([\w.-]+\/[\w.-]+)@([\w.-]+)(?:\/(.+))?$/);
+  return `https://huggingface.co/${m[1]}/resolve/${m[2]}${m[3] ? `/${m[3]}` : ''}`;
+};
+async function refreshModelInfo() {
+  let urls = [];
+  try { urls = (await (await caches.open(MODEL_CACHE)).keys()).map((r) => r.url); } catch (_) { /* 미지원 */ }
+  const dir = tts.onnxDir || '';
+  const saved = [];
+  for (const [k, spec] of Object.entries(MODELS)) {
+    const base = hfBase(spec);
+    const n = urls.filter((u) => u.endsWith('.onnx') && u.startsWith(`${base}/`) && !u.slice(base.length + 1).replace(/^onnx\//, '').includes('/')).length;
+    const inUse = dir === base || dir.startsWith(`${base}/`);
+    const opt = el.model.querySelector(`option[value="${k}"]`);
+    opt.textContent = `${opt.dataset.label}${inUse ? ' · 사용 중' : n >= 4 ? ' · 저장됨' : ''}`;
+    if (n >= 4) saved.push(opt.dataset.label.replace(/\s*\(.*$/, ''));
+  }
+  let used = '';
+  try { const e = await navigator.storage?.estimate?.(); if (e?.usage) used = ` · 이 사이트 저장 공간 약 ${Math.round(e.usage / 1048576)}MB`; } catch (_) { /* 미지원 */ }
+  if (!el.modelInfo) return; // 예전 index.html 이 캐시에 남아 있을 때
+  el.modelInfo.textContent = saved.length
+    ? `기기에 저장된 모델: ${saved.join(', ')}${used}. 저장된 모델로 바꾸면 다시 받지 않습니다.`
+    : `저장된 모델이 없습니다. 처음 쓰는 모델은 내려받습니다${used}.`;
 }
 
 /* ---- 버튼 ---- */

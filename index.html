@@ -90,7 +90,7 @@
               <span class="row"><input id="seed" type="number" min="0" max="999999" placeholder="자동 (문장마다 따로)">
                 <button id="dice" class="icon boxed" type="button" title="무작위 시드" aria-label="무작위 시드"><svg class="ic"><use href="#i-shuffle"/></svg></button></span>
             </label>
-            <p class="hint">품질 단계가 높을수록 깨끗하지만 느립니다. 시드를 비우면 문장마다 시드가 정해지고, 목록의 다시 뽑기로 그 문장만 바꿀 수 있습니다.</p>
+            <p class="hint">품질 단계가 높을수록 깨끗하지만 느립니다. 시드를 비우면 같은 문장은 늘 같은 소리로 나옵니다.</p>
             <label class="f"><span>표현 태그</span>
               <select id="tagMode">
                 <option value="auto">자동 (한·영·일·언어 미지정만 사용)</option>
@@ -99,7 +99,7 @@
                 <option value="strip">모두 빼고 읽기</option>
               </select>
             </label>
-            <p class="hint">자동은 한·영·일·언어 미지정 밖의 언어에서 태그를 빼고 읽습니다. 태그는 실험 기능입니다. 문장 처음이나 끝에 둘 때 잘 되고, 소리 대신 글자로 읽힐 때가 있습니다. 그러면 다시 뽑기나 두 번 겹치기를 써 보세요.</p>
+            <p class="hint">태그는 실험 기능이라 글자로 읽힐 때가 있습니다. 문장 처음이나 끝에 두세요. 요령은 <kbd>?</kbd> 창에 있습니다.</p>
           </div>
         </details>
 
@@ -122,16 +122,17 @@
           <div class="fields">
             <label class="f"><span>모델</span>
               <select id="model">
-                <option value="auto">자동 (휴대폰·WASM 8비트, 그 밖 32비트)</option>
-                <option value="f32">32비트 (edge-lab/tts)</option>
-                <option value="int8">8비트 (edge-lab/tts-int8)</option>
-                <option value="official">공식 원본 32비트 (supertonic-3)</option>
+                <option value="auto">자동 (기기에 맞게)</option>
+                <option value="f32">32비트 (379MB)</option>
+                <option value="int8">8비트 (177MB)</option>
+                <option value="official">공식 원본 (379MB)</option>
               </select>
             </label>
             <label class="f"><span>실행</span>
               <select id="ep"><option value="auto">자동 (WebGPU → WASM)</option><option value="webgpu">WebGPU</option><option value="wasm">WASM (CPU)</option></select>
             </label>
-            <p class="hint">8비트 모델은 WASM 이 빠릅니다. 바꾸면 페이지를 다시 불러옵니다.</p>
+            <p class="hint">자동은 휴대폰·WASM 에서 8비트, 그 밖에서 32비트를 씁니다. 8비트는 WASM 과 함께 쓸 때 빠릅니다. 적용하면 페이지를 다시 불러옵니다.</p>
+            <p id="modelInfo" class="hint model-info"></p>
             <span class="row">
               <button id="applyEngine" type="button" disabled>적용</button>
               <button id="clearModels" type="button">받은 모델 지우기</button>
@@ -209,7 +210,9 @@
           <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>~<kbd>0</kbd></td><td>표현 태그 넣기 (버튼 오른쪽 숫자)</td></tr>
           <tr><td><kbd>?</kbd></td><td>이 창 (편집기 밖에서)</td></tr>
         </table>
-        <p class="hint">Mac 은 <kbd>Ctrl</kbd> 대신 <kbd>⌘</kbd>, <kbd>Alt</kbd> 대신 <kbd>⌥</kbd>. 공식 태그는 웃음·숨·한숨 3개입니다. '실험 태그'(점선) 7개는 공식 문서에 없는 목록이라 효과가 없거나 글자로 읽힐 수 있습니다. 태그는 문장 처음이나 끝에 두세요.</p>
+        <p class="hint">Mac 은 <kbd>Ctrl</kbd> 대신 <kbd>⌘</kbd>, <kbd>Alt</kbd> 대신 <kbd>⌥</kbd>. 공식 태그는 웃음·숨·한숨 3개입니다. '실험 태그'(점선) 7개는 공식 문서에 없는 목록이라 효과가 없거나 글자로 읽힐 수 있습니다.</p>
+        <p class="hint"><b>표현 태그 요령</b> · 문장 처음이나 끝에 두세요(문장 중간은 잘 안 됨). 소리 대신 글자로 읽히면 그 문장만 다시 뽑거나 설정 › 소리 › 표현 태그를 '두 번 겹쳐 강조'로 바꿔 보세요. 학습 데이터가 주로 한·영·일이라 자동일 때 그 밖 언어는 태그를 빼고 읽습니다.</p>
+        <p class="hint"><b>대본 모드</b> · 툴바의 '대본'을 켜고 줄을 '이름: 대사'로 쓰면 인물마다 목소리·나이를 따로 정합니다. 이름이 없는 줄은 기본 목소리로 읽습니다.</p>
         <p class="hint">음성은 <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noopener">Supertonic 3</a>(Open RAIL-M)로 이 기기 안에서 만들며 글이 서버로 가지 않습니다. 만든 음성은 AI 음성임을 밝히고, 사람을 사칭하거나 속이는 데 쓰지 마세요. Supertone Inc. 와 관계없는 프로젝트입니다. · <a href="THIRD_PARTY_NOTICES.md">라이선스</a></p>
       </div>
     </form>

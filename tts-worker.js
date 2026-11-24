@@ -21,7 +21,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (type === 'load') {
       await tts.load((msg) => post({ type: 'status', msg }), { search: data.search, mobile: data.mobile });
-      post({ type: 'ready', id, backend: tts.backend, source: tts.source, sampleRate: tts.sampleRate });
+      post({ type: 'ready', id, backend: tts.backend, source: tts.source, sampleRate: tts.sampleRate, onnxDir: tts.onnxDir });
     } else if (type === 'style') {
       await tts.style(data.voice);
       post({ type: 'done', id });

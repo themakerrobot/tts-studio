@@ -1,5 +1,5 @@
 // 화면 쪽 음성 엔진 창구. 가능하면 tts-worker.js(별도 스레드)에서 돌리고, 워커를 못 쓰면 화면 스레드에서 직접 돌림.
-// app.js 는 이 파일의 createTTS() 가 돌려주는 객체만 씀: load, style, synth, sampleRate, backend, source, inWorker
+// app.js 는 이 파일의 createTTS() 가 돌려주는 객체만 씀: load, style, synth, sampleRate, backend, source, onnxDir, inWorker
 // 휴대폰·태블릿 여부(tts.js 의 isMobileDevice 와 같은 기준). 화면 쪽에서만 iPad(UA가 Mac)를 터치로 구분할 수 있어 여기서 계산해 워커에 넘김.
 // tts.js 를 여기서 import 하지 않는 이유: 음성 엔진(ONNX Runtime)이 화면 스레드에도 로드됨
 const isMobileDevice = () => /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
@@ -49,7 +49,7 @@ class WorkerTTS {
   async load(onStatus) {
     this.onStatus = onStatus;
     const r = await this.call('load', { search: location.search, mobile: isMobileDevice() }).promise;
-    Object.assign(this, { backend: r.backend, source: r.source, sampleRate: r.sampleRate });
+    Object.assign(this, { backend: r.backend, source: r.source, sampleRate: r.sampleRate, onnxDir: r.onnxDir });
   }
 
   async style(voice) { await this.call('style', { voice }).promise; }

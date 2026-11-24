@@ -25,6 +25,7 @@
 - 실행 방식: WebGPU → WASM 순서로 시도. 휴대폰·태블릿 GPU(Adreno, Mali 등)는 자동일 때 WebGPU 를 건너뜀.
 - WASM 스레드: `crossOriginIsolated` 일 때 `min(4, hardwareConcurrency)`, 아니면 1.
 - 모델 파일은 처음 받을 때 Cache Storage(`supertonic3-aafc6e3`)에 바로 흘려 넣고, 다음부터 네트워크 없이 읽음.
+- 기본 모델 3종(32비트·8비트·공식 원본)은 엔진을 바꿔도 지우지 않음. 그 밖의 `.onnx`(예전 리비전, 8비트 main 대체본, 쓰지 않는 `?model=` 위치)만 로딩 뒤 정리. 설정 › 엔진에 저장 여부(`저장됨` / `사용 중`)와 `navigator.storage.estimate()` 사용량 표시.
 
 ## 모델 위치
 위에서부터 차례로 시도하고, 없거나 구성이 다르면 다음으로 넘어갑니다.
@@ -32,9 +33,9 @@
 | 이름 | 위치 | 비고 |
 |---|---|---|
 | 자체 호스팅 | `./assets` | 있을 때만 |
-| edge-lab (32비트) | `leeyunjai/edge-lab@main/tts` | PC·WebGPU 기본 |
-| edge-lab 8비트 | `leeyunjai/edge-lab@71800e5/tts-int8` | 휴대폰·WASM 기본. vocoder 만 32비트(전부 8비트는 vocoder 잡음), 약 177MB |
-| 공식 원본 | `supertone-oss-archive/supertonic-3@aafc6e3…` | 고정 리비전 |
+| 32비트 | `leeyunjai/edge-lab@main/tts` | PC·WebGPU 기본, 379MB |
+| 8비트 | `leeyunjai/edge-lab@71800e5/tts-int8` | 휴대폰·WASM 기본. vocoder 만 32비트(전부 8비트는 vocoder 잡음), 177MB |
+| 공식 원본 | `supertone-oss-archive/supertonic-3@aafc6e3…` | 고정 리비전, 379MB |
 
 8비트 모델은 WebGPU 에서 정수 연산이 CPU 로 넘어가 느려지므로 WASM 과 함께 쓰는 것이 맞습니다.
 
