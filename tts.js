@@ -58,6 +58,22 @@ function modelSources(search = self.location?.search || '', small = true) {
   return list;
 }
 const CACHE_NAME = 'supertonic3-aafc6e3';
+// 모델 준비 진행 문구(화면 언어에 맞춤). 모델 위치 이름(src.name)은 화면 쪽에서 바꾸지 않으므로 영어일 때 따로 적음
+const SRC_EN = { '32비트': '32-bit', '8비트': '8-bit', '8비트(main)': '8-bit', '공식 원본': 'official', '자체 호스팅': 'self-hosted' };
+const LOAD_MSG = {
+  ko: {
+    cached: (n) => `저장된 모델 불러오는 중 (${n}/4)`,
+    download: (n, src, size) => `모델 내려받는 중 (${n}/4, ${src}) ${size}`,
+    prepare: (n) => `음성 엔진 준비 중 (${n}/4)`,
+    config: (src) => `설정 파일을 불러오는 중 (${src})`,
+  },
+  en: {
+    cached: (n) => `Loading saved model (${n}/4)`,
+    download: (n, src, size) => `Downloading model (${n}/4, ${SRC_EN[src] || src}) ${size}`,
+    prepare: (n) => `Preparing voice engine (${n}/4)`,
+    config: (src) => `Loading config (${SRC_EN[src] || src})`,
+  },
+};
 
 const AVAILABLE_LANGS = ['en', 'ko', 'ja', 'ar', 'bg', 'cs', 'da', 'de', 'el', 'es', 'et', 'fi', 'fr', 'hi',
   'hr', 'hu', 'id', 'it', 'lt', 'lv', 'nl', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'tr', 'uk', 'vi', 'na'];
@@ -239,8 +255,10 @@ export class SupertonicTTS {
   get sampleRate() { return this.cfgs.ae.sample_rate; }
 
   // mobile: 휴대폰·태블릿 여부(페이지에서 넘겨받음. iPad Safari는 UA가 Mac이라 워커 안에서는 알 수 없음)
-  async load(onStatus, { search, mobile = isMobileDevice() } = {}) {
+  // ui: 진행 문구 언어('ko' | 'en')
+  async load(onStatus, { search, mobile = isMobileDevice(), ui = 'ko' } = {}) {
     const t0 = performance.now();
+    const M = LOAD_MSG[ui] || LOAD_MSG.ko;
     // 저장 공간 부족 시 브라우저가 모델 캐시를 지우지 않도록 영구 저장 요청
     try { await navigator.storage?.persist?.(); } catch (_) { /* unsupported */ }
     const names = [
@@ -257,11 +275,9 @@ export class SupertonicTTS {
         let buf = await fetchCached(`${this.onnxDir}/${file}`, (n, total, cached) => {
           const mb = (x) => (x / 1048576).toFixed(1);
           const size = total ? `${mb(n)} / ${mb(total)} MB` : `${mb(n)} MB`;
-          onStatus?.(cached
-            ? `저장된 모델 불러오는 중 (${i + 1}/4)`
-            : `모델 내려받는 중 (${i + 1}/4, ${this.source}) ${size}`);
+          onStatus?.(cached ? M.cached(i + 1) : M.download(i + 1, this.source, size));
         });
-        onStatus?.(`음성 엔진 준비 중 (${i + 1}/4)`);
+        onStatus?.(M.prepare(i + 1));
         try {
           s[key] = await ort.InferenceSession.create(new Uint8Array(buf), {
             executionProviders: [ep],
@@ -307,7 +323,7 @@ export class SupertonicTTS {
             const r = await fetch(`${onnxDir}/tts.json`, { method: 'HEAD', cache: 'no-store' });
             if (!r.ok) throw new Error(`없음 (${r.status})`);
           }
-          onStatus?.(`설정 파일을 불러오는 중 (${src.name})`);
+          onStatus?.(M.config(src.name));
           const cfgs = await fetchJSON(`${onnxDir}/tts.json`);
           if (!cfgs?.ae?.sample_rate || !cfgs?.ttl?.latent_dim) throw new Error('tts.json 형식이 다름');
           const indexer = await fetchJSON(`${onnxDir}/unicode_indexer.json`);

@@ -46,9 +46,10 @@ class WorkerTTS {
     };
   }
 
-  async load(onStatus) {
+  // opts.ui: 진행 문구 언어('ko' | 'en')
+  async load(onStatus, opts = {}) {
     this.onStatus = onStatus;
-    const r = await this.call('load', { search: location.search, mobile: isMobileDevice() }).promise;
+    const r = await this.call('load', { search: location.search, mobile: isMobileDevice(), ui: opts.ui }).promise;
     Object.assign(this, { backend: r.backend, source: r.source, sampleRate: r.sampleRate, onnxDir: r.onnxDir });
   }
 

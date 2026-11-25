@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>TTS Studio</title>
-  <meta name="description" content="31개 언어 음성 합성 작업 도구. 서버 없이 브라우저 안에서 합성하고, 문장별로 다듬어 WAV·SRT·ZIP으로 내보냅니다.">
+  <meta name="description" content="브라우저 안에서 만드는 31개 언어 음성 합성 도구. 글 하나를 바로 듣고 WAV 로 저장하거나, 문장별로 다듬어 WAV·SRT·ZIP 으로 내보냅니다. / In-browser text-to-speech for 31 languages.">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
@@ -15,9 +15,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="TTS Studio">
   <script>
-    // 화면 테마(자동/밝게/어둡게)를 그리기 전에 적용해 깜빡임을 막음
+    // 그리기 전에 적용: 화면 테마(자동/밝게/어둡게), 화면 모드(간단/전문가), 화면 언어(한/EN) → 깜빡임 방지
     (function () {
-      try { var t = JSON.parse(localStorage.getItem('tts-studio:theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (_) {}
+      var get = function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (_) { return null; } };
+      var root = document.documentElement;
+      var th = get('tts-studio:theme'); if (th === 'light' || th === 'dark') root.dataset.theme = th;
+      // 모드: 고른 적이 없으면 처음 온 사람은 간단, 이미 쓰던 사람(글·설정이 저장됨)은 전문가
+      var mode = get('tts-studio:mode'); if (mode !== 'simple' && mode !== 'pro') mode = get('tts-studio:v2') ? 'pro' : 'simple';
+      root.dataset.mode = mode;
+      var ui = get('tts-studio:ui'); if (ui !== 'ko' && ui !== 'en') ui = /^ko/i.test(navigator.language || '') ? 'ko' : 'en';
+      root.lang = ui;
     })();
     // WASM 이 CPU 여러 코어를 쓰도록 교차 출처 격리를 켬(coi-sw.js). 처음 한 번만 자동 새로고침.
     // coi-sw.js 는 앱 파일을 기기에 보관해 두었다가 인터넷이 끊겼을 때 대신 씀(오프라인 실행).
@@ -64,105 +71,114 @@
   <header class="top">
     <span class="logo" aria-hidden="true"></span>
     <h1>TTS Studio</h1>
-    <span id="engine" class="engine" aria-live="polite">엔진 불러오는 중…</span>
+    <span id="engine" class="engine" aria-live="polite" data-i18n="st.loading">엔진 불러오는 중…</span>
     <span class="spacer"></span>
-    <button id="themeBtn" class="icon" type="button" title="화면 테마: 자동" aria-label="화면 테마"><svg class="ic"><use href="#i-theme-auto"/></svg></button>
-    <button id="helpBtn" class="icon" type="button" title="단축키·안내 (?)" aria-label="단축키·안내"><svg class="ic"><use href="#i-keyboard"/></svg></button>
-    <span class="ai-badge" title="모든 음성은 AI(Supertonic 3)가 이 기기 안에서 만든 것입니다">AI 음성</span>
+    <!-- 화면 모드: 간단(글 하나 빠르게) / 전문가(문장별 다듬기) -->
+    <span id="modeSwitch" class="seg-switch" role="group" data-i18n-title="mode.title" data-i18n-aria="mode.title">
+      <button id="modeSimple" type="button" data-mode="simple" data-i18n="mode.simple">간단</button>
+      <button id="modePro" type="button" data-mode="pro" data-i18n="mode.pro">전문가</button>
+    </span>
+    <button id="uiBtn" class="icon ui-btn" type="button" data-i18n="ui.switch" data-i18n-title="ui.title" data-i18n-aria="ui.title">EN</button>
+    <button id="themeBtn" class="icon" type="button" aria-label="theme"><svg class="ic"><use href="#i-theme-auto"/></svg></button>
+    <button id="helpBtn" class="icon pro-only" type="button" data-i18n-title="help.btn" data-i18n-aria="help.btn"><svg class="ic"><use href="#i-keyboard"/></svg></button>
+    <span class="ai-badge" data-i18n="ai.badge" data-i18n-title="ai.title">AI 음성</span>
   </header>
 
   <div class="app">
-    <!-- 설정 (PC: 왼쪽 칸 / 모바일: 아래에서 올라오는 시트) -->
-    <aside id="settings" class="settings pane" aria-label="설정">
+    <!-- 간단 모드 안내 -->
+    <p class="simple-intro simple-only" data-i18n="simple.intro">글을 쓰고 ▶ 를 누르면 읽어 줍니다. 마음에 들면 WAV 로 저장하세요.</p>
+
+    <!-- 설정 (전문가 모드. PC: 왼쪽 칸 / 모바일: 아래에서 올라오는 시트) -->
+    <aside id="settings" class="settings pane" data-i18n-aria="set.title">
       <div class="pane-head">
-        <span class="pane-title">설정</span>
+        <span class="pane-title" data-i18n="set.title">설정</span>
         <span class="spacer"></span>
-        <button id="closeSettings" class="icon sheet-only" type="button" aria-label="설정 닫기"><svg class="ic"><use href="#i-x"/></svg></button>
+        <button id="closeSettings" class="icon sheet-only" type="button" data-i18n-aria="set.close"><svg class="ic"><use href="#i-x"/></svg></button>
       </div>
       <div class="pane-body">
         <details open>
-          <summary>목소리</summary>
+          <summary data-i18n="grp.voice">목소리</summary>
           <div class="fields">
-            <label class="f"><span>언어</span><select id="lang"></select></label>
-            <label class="f"><span>목소리</span>
-              <span class="row"><select id="voice"></select><button id="preview" class="icon boxed" type="button" title="이 목소리 들어 보기" aria-label="미리 듣기"><svg class="ic"><use href="#i-play"/></svg></button></span>
+            <label class="f"><span data-i18n="f.lang">언어</span><select id="lang"></select></label>
+            <label class="f"><span data-i18n="f.voice">목소리</span>
+              <span class="row"><select id="voice"></select><button id="preview" class="icon boxed" type="button" data-i18n-title="preview.title" data-i18n-aria="preview.aria"><svg class="ic"><use href="#i-play"/></svg></button></span>
             </label>
-            <label class="f"><span>나이</span>
-              <select id="age"><option value="child">아이</option><option value="normal" selected>보통</option><option value="adult">어른</option><option value="old">노인</option></select>
+            <label class="f"><span data-i18n="f.age">나이</span>
+              <select id="age"><option value="child" data-i18n="age.child">아이</option><option value="normal" selected data-i18n="age.normal">보통</option><option value="adult" data-i18n="age.adult">어른</option><option value="old" data-i18n="age.old">노인</option></select>
             </label>
-            <label class="f"><span>프리셋</span>
-              <span class="row"><select id="preset"><option value="">— 저장한 설정 —</option></select>
-                <button id="savePreset" class="icon boxed" type="button" title="지금 설정을 프리셋으로 저장" aria-label="프리셋 저장"><svg class="ic"><use href="#i-plus"/></svg></button>
-                <button id="delPreset" class="icon boxed" type="button" title="고른 프리셋 지우기" aria-label="프리셋 지우기"><svg class="ic"><use href="#i-minus"/></svg></button></span>
+            <label class="f"><span data-i18n="f.preset">프리셋</span>
+              <span class="row"><select id="preset"></select>
+                <button id="savePreset" class="icon boxed" type="button" data-i18n-title="preset.save" data-i18n-aria="preset.save"><svg class="ic"><use href="#i-plus"/></svg></button>
+                <button id="delPreset" class="icon boxed" type="button" data-i18n-title="preset.del" data-i18n-aria="preset.del"><svg class="ic"><use href="#i-minus"/></svg></button></span>
             </label>
           </div>
         </details>
 
         <details open>
-          <summary>소리</summary>
+          <summary data-i18n="grp.sound">소리</summary>
           <div class="fields">
-            <label class="f r"><span>빠르기</span><input id="speed" type="range" min="0.5" max="2" step="0.05" value="1"><output id="speedOut"></output></label>
-            <label class="f r"><span>음 높이</span><input id="pitch" type="range" min="0.85" max="1.15" step="0.01" value="1"><output id="pitchOut"></output></label>
-            <label class="f r"><span>품질 단계</span><input id="steps" type="range" min="1" max="32" step="1" value="8"><output id="stepsOut"></output></label>
-            <label class="f"><span>시드</span>
-              <span class="row"><input id="seed" type="number" min="0" max="999999" placeholder="자동 (문장마다 따로)">
-                <button id="dice" class="icon boxed" type="button" title="무작위 시드" aria-label="무작위 시드"><svg class="ic"><use href="#i-shuffle"/></svg></button></span>
+            <label class="f r"><span data-i18n="f.speed">빠르기</span><input id="speed" type="range" min="0.5" max="2" step="0.05" value="1"><output id="speedOut"></output></label>
+            <label class="f r"><span data-i18n="f.pitch">음 높이</span><input id="pitch" type="range" min="0.85" max="1.15" step="0.01" value="1"><output id="pitchOut"></output></label>
+            <label class="f r"><span data-i18n="f.steps">품질 단계</span><input id="steps" type="range" min="1" max="32" step="1" value="8"><output id="stepsOut"></output></label>
+            <label class="f"><span data-i18n="f.seed">시드</span>
+              <span class="row"><input id="seed" type="number" min="0" max="999999" data-i18n-ph="seed.ph" placeholder="자동 (문장마다 따로)">
+                <button id="dice" class="icon boxed" type="button" data-i18n-title="seed.dice" data-i18n-aria="seed.dice"><svg class="ic"><use href="#i-shuffle"/></svg></button></span>
             </label>
-            <p class="hint">품질 단계가 높을수록 깨끗하지만 느립니다. 시드를 비우면 같은 문장은 늘 같은 소리로 나옵니다.</p>
-            <label class="f"><span>표현 태그</span>
+            <p class="hint" data-i18n="hint.quality">품질 단계가 높을수록 깨끗하지만 느립니다. 시드를 비우면 같은 문장은 늘 같은 소리로 나옵니다.</p>
+            <label class="f"><span data-i18n="f.tagMode">표현 태그</span>
               <select id="tagMode">
-                <option value="auto">자동 (한·영·일·언어 미지정만 사용)</option>
-                <option value="keep">항상 그대로</option>
-                <option value="double">두 번 겹쳐 강조</option>
-                <option value="strip">모두 빼고 읽기</option>
+                <option value="auto" data-i18n="tag.auto">자동 (한·영·일·언어 미지정만 사용)</option>
+                <option value="keep" data-i18n="tag.keep">항상 그대로</option>
+                <option value="double" data-i18n="tag.double">두 번 겹쳐 강조</option>
+                <option value="strip" data-i18n="tag.strip">모두 빼고 읽기</option>
               </select>
             </label>
-            <p class="hint">태그는 실험 기능이라 글자로 읽힐 때가 있습니다. 문장 처음이나 끝에 두세요. 요령은 <kbd>?</kbd> 창에 있습니다.</p>
+            <p class="hint" data-i18n-html="hint.tags">태그는 실험 기능이라 글자로 읽힐 때가 있습니다. 문장 처음이나 끝에 두세요. 요령은 <kbd>?</kbd> 창에 있습니다.</p>
           </div>
         </details>
 
         <details>
-          <summary>읽기 사전 <span id="dictCount" class="badge"></span></summary>
+          <summary><span data-i18n="grp.dict">읽기 사전</span> <span id="dictCount" class="badge"></span></summary>
           <div class="fields">
-            <p class="hint">글은 그대로 두고, 읽을 때만 바꿉니다. 예) TTS → 티티에스. 영문은 대소문자를 가리지 않고 단어 단위로 바꿉니다.</p>
+            <p class="hint" data-i18n="hint.dict">글은 그대로 두고, 읽을 때만 바꿉니다. 예) TTS → 티티에스. 영문은 대소문자를 가리지 않고 단어 단위로 바꿉니다.</p>
             <div id="dictList" class="dict"></div>
-            <button id="dictAdd" type="button" title="편집기에서 글을 선택한 채 누르면 그 글이 들어갑니다"><svg class="ic"><use href="#i-plus"/></svg><span>항목 추가</span></button>
+            <button id="dictAdd" type="button" data-i18n-title="dict.addTitle"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="dict.add">항목 추가</span></button>
           </div>
         </details>
 
         <details open>
-          <summary>출력</summary>
+          <summary data-i18n="grp.output">출력</summary>
           <div class="fields">
-            <label class="f r"><span>문장 쉼</span><input id="gap" type="range" min="0" max="3000" step="50" value="300"><output id="gapOut"></output></label>
-            <label class="f r"><span>문단 쉼</span><input id="para" type="range" min="0" max="3000" step="50" value="700"><output id="paraOut"></output></label>
-            <label class="f r"><span>음량</span><input id="gain" type="range" min="0.3" max="2" step="0.05" value="1"><output id="gainOut"></output></label>
-            <label class="f check"><input id="norm" type="checkbox"> 음량 자동 맞춤 (최대치 −0.5dB)</label>
-            <label class="f"><span>저장 형식</span>
+            <label class="f r"><span data-i18n="f.gap">문장 쉼</span><input id="gap" type="range" min="0" max="3000" step="50" value="300"><output id="gapOut"></output></label>
+            <label class="f r"><span data-i18n="f.para">문단 쉼</span><input id="para" type="range" min="0" max="3000" step="50" value="700"><output id="paraOut"></output></label>
+            <label class="f r"><span data-i18n="f.gain">음량</span><input id="gain" type="range" min="0.3" max="2" step="0.05" value="1"><output id="gainOut"></output></label>
+            <label class="f check"><input id="norm" type="checkbox"> <span data-i18n="norm">음량 자동 맞춤 (최대치 −0.5dB)</span></label>
+            <label class="f"><span data-i18n="f.rate">저장 형식</span>
               <select id="rate"><option value="44100">WAV 44.1kHz 16bit</option><option value="24000">WAV 24kHz 16bit</option><option value="16000">WAV 16kHz 16bit</option></select>
             </label>
-            <button id="resetSet" type="button">설정 처음값으로</button>
+            <button id="resetSet" type="button" data-i18n="reset">설정 처음값으로</button>
           </div>
         </details>
 
         <details>
-          <summary>엔진</summary>
+          <summary data-i18n="grp.engine">엔진</summary>
           <div class="fields">
-            <label class="f"><span>모델</span>
+            <label class="f"><span data-i18n="f.model">모델</span>
               <select id="model">
-                <option value="auto">자동 (기기에 맞게)</option>
-                <option value="f32">32비트 (379MB)</option>
-                <option value="int8">8비트 (177MB)</option>
-                <option value="official">공식 원본 (379MB)</option>
+                <option value="auto" data-i18n="model.auto">자동 (기기에 맞게)</option>
+                <option value="f32" data-i18n="model.f32">32비트 (379MB)</option>
+                <option value="int8" data-i18n="model.int8">8비트 (177MB)</option>
+                <option value="official" data-i18n="model.official">공식 원본 (379MB)</option>
               </select>
             </label>
-            <label class="f"><span>실행</span>
-              <select id="ep"><option value="auto">자동 (WebGPU → WASM)</option><option value="webgpu">WebGPU</option><option value="wasm">WASM (CPU)</option></select>
+            <label class="f"><span data-i18n="f.ep">실행</span>
+              <select id="ep"><option value="auto" data-i18n="ep.auto">자동 (WebGPU → WASM)</option><option value="webgpu">WebGPU</option><option value="wasm" data-i18n="ep.wasm">WASM (CPU)</option></select>
             </label>
-            <p class="hint">자동은 휴대폰·WASM 에서 8비트, 그 밖에서 32비트를 씁니다. 8비트는 WASM 과 함께 쓸 때 빠릅니다. 적용하면 페이지를 다시 불러옵니다.</p>
+            <p class="hint" data-i18n="hint.engine">자동은 휴대폰·WASM 에서 8비트, 그 밖에서 32비트를 씁니다. 8비트는 WASM 과 함께 쓸 때 빠릅니다. 적용하면 페이지를 다시 불러옵니다.</p>
             <p id="modelInfo" class="hint model-info"></p>
             <span class="row">
-              <button id="applyEngine" type="button" disabled>적용</button>
-              <button id="clearModels" type="button">받은 모델 지우기</button>
+              <button id="applyEngine" type="button" disabled data-i18n="apply">적용</button>
+              <button id="clearModels" type="button" data-i18n="clearModels">받은 모델 지우기</button>
             </span>
           </div>
         </details>
@@ -171,58 +187,61 @@
     <div id="sheetBackdrop" class="backdrop" hidden></div>
 
     <!-- 편집기 -->
-    <main class="editor pane" aria-label="편집기">
+    <main class="editor pane" aria-label="editor">
       <div class="pane-head toolbar">
-        <label class="btn file-btn" title="파일 열기: 글(.txt .md), 자막(.srt .vtt), 프로젝트(.json) (Ctrl+O)"><svg class="ic"><use href="#i-folder"/></svg><span>열기</span><input id="file" type="file" accept=".txt,.md,.srt,.vtt,.json,text/plain,application/json"></label>
-        <button id="saveProject" class="btn" type="button" title="프로젝트 저장: 글·인물·사전·문장별 설정을 .json 파일 하나로 (Ctrl+Shift+S)"><svg class="ic"><use href="#i-save"/></svg><span>저장</span></button>
-        <label class="btn check" title="'이름: 대사' 줄마다 인물 목소리로"><input id="script" type="checkbox"><span>대본</span></label>
-        <button id="clearText" class="icon" type="button" title="글 모두 지우기 (Ctrl+Z 로 되돌릴 수 있음)" aria-label="글 모두 지우기"><svg class="ic"><use href="#i-trash"/></svg></button>
-        <span class="sep"></span>
-        <span id="tagbar" class="tagbar" aria-label="표현 태그·쉼"></span>
+        <!-- 간단 모드: 언어·목소리만 -->
+        <span class="quick simple-only">
+          <select id="qLang" data-i18n-aria="f.lang"></select>
+          <select id="qVoice" data-i18n-aria="f.voice"></select>
+          <button id="qPreview" class="icon boxed" type="button" data-i18n-title="preview.title" data-i18n-aria="preview.aria"><svg class="ic"><use href="#i-play"/></svg></button>
+        </span>
+        <label class="btn file-btn" data-i18n-title="open.title"><svg class="ic"><use href="#i-folder"/></svg><span data-i18n="open">열기</span><input id="file" type="file" accept=".txt,.md,.srt,.vtt,.json,text/plain,application/json"></label>
+        <button id="saveProject" class="btn pro-only" type="button" data-i18n-title="save.title"><svg class="ic"><use href="#i-save"/></svg><span data-i18n="save">저장</span></button>
+        <label class="btn check pro-only" data-i18n-title="script.title"><input id="script" type="checkbox"><span data-i18n="script">대본</span></label>
+        <button id="clearText" class="icon" type="button" data-i18n-title="clear.title" data-i18n-aria="clear.aria"><svg class="ic"><use href="#i-trash"/></svg></button>
+        <span class="sep pro-only"></span>
+        <span id="tagbar" class="tagbar pro-only" data-i18n-aria="tagbar"></span>
       </div>
       <div class="editor-body">
-        <textarea id="text" spellcheck="false" placeholder="여기에 글을 쓰거나 붙여 넣으세요.
-
-• Ctrl+Enter  커서가 있는 문장(또는 선택한 글) 듣기
-• Ctrl+Shift+Enter  커서부터 끝까지 듣기
-• Esc  멈춤 · Ctrl+S  WAV 저장 · Alt+1~0  표현 태그
-• [1초] 처럼 쓰면 그 자리에서 쉼 · 빈 줄 = 문단 쉼
-• 대본 모드: '이름: 대사' · .srt 자막은 자막 시간에 맞춰 내보냄"></textarea>
-        <div id="cast" class="cast" hidden></div>
+        <textarea id="text" spellcheck="false"></textarea>
+        <div id="cast" class="cast pro-only" hidden></div>
       </div>
-      <div class="status-line"><span id="count"></span><span id="cursorInfo"></span></div>
+      <div class="status-line"><span id="count"></span><span id="cursorInfo" class="pro-only"></span></div>
     </main>
 
-    <!-- 문장 목록 -->
-    <section class="segments pane" aria-label="문장 목록">
+    <!-- 문장 목록 (전문가 모드) -->
+    <section class="segments pane" aria-label="sentences">
       <div class="pane-head">
-        <span class="pane-title">문장</span>
+        <span class="pane-title" data-i18n="segs.title">문장</span>
         <span id="segInfo" class="muted"></span>
         <span class="spacer"></span>
-        <button id="genAll" type="button" title="모든 문장을 미리 만들어 둠 (만드는 동안에도 듣기 가능)"><svg class="ic"><use href="#i-layers"/></svg><span>모두 만들기</span></button>
-        <button id="saveSrt2" class="narrow-only" type="button" title="자막(SRT) 저장">SRT</button>
-        <button id="saveZip2" class="narrow-only" type="button" title="문장별 WAV ZIP">ZIP</button>
+        <button id="genAll" type="button" data-i18n-title="genAll.title"><svg class="ic"><use href="#i-layers"/></svg><span data-i18n="genAll">모두 만들기</span></button>
+        <button id="saveSrt2" class="narrow-only" type="button" data-i18n-title="srt.short">SRT</button>
+        <button id="saveZip2" class="narrow-only" type="button" data-i18n-title="zip.short">ZIP</button>
       </div>
-      <ol id="segs" class="segs" aria-label="문장 목록 (↑↓ 로 이동, Enter 로 듣기)"></ol>
+      <ol id="segs" class="segs" data-i18n-aria="segs.aria"></ol>
     </section>
   </div>
 
-  <!-- 재생·내보내기 막대 -->
+  <!-- 재생·내보내기 막대 (간단 모드에서는 편집기 바로 아래에 붙음) -->
   <footer class="transport">
     <div class="tgroup">
-      <button id="playCur" class="tbtn primary" type="button" title="커서 문장·선택 듣기 (Ctrl+Enter) · 재생 중에는 일시정지" aria-label="듣기"><svg class="ic"><use href="#i-play"/></svg></button>
-      <button id="playFrom" class="tbtn" type="button" title="커서부터 끝까지 (Ctrl+Shift+Enter)" aria-label="커서부터 끝까지"><svg class="ic"><use href="#i-playall"/></svg></button>
-      <button id="stop" class="tbtn" type="button" title="멈춤 (Esc)" aria-label="멈춤"><svg class="ic"><use href="#i-stop"/></svg></button>
+      <button id="playCur" class="tbtn primary" type="button"><svg class="ic"><use href="#i-play"/></svg></button>
+      <button id="playFrom" class="tbtn pro-only" type="button" data-i18n-title="playFrom.title" data-i18n-aria="playFrom.aria"><svg class="ic"><use href="#i-playall"/></svg></button>
+      <button id="stop" class="tbtn" type="button" data-i18n-title="stop.title" data-i18n-aria="stop.aria"><svg class="ic"><use href="#i-stop"/></svg></button>
     </div>
     <div class="wave-wrap"><canvas id="wave" height="40"></canvas><div id="nowText" class="now-text"></div></div>
     <div class="exports">
-      <button id="saveWav" class="primary" type="button" title="전체 WAV 저장 (Ctrl+S)"><svg class="ic"><use href="#i-download"/></svg><span>WAV</span></button>
-      <button id="saveSrt" type="button" title="전체 WAV 와 시간이 맞는 자막(SRT)">SRT</button>
-      <button id="saveZip" type="button" title="문장별 WAV 를 ZIP 하나로 (파일 이름에 문장 앞부분)">ZIP</button>
+      <button id="saveWav" class="primary" type="button" data-i18n-title="wav.title"><svg class="ic"><use href="#i-download"/></svg><span>WAV</span></button>
+      <button id="saveSrt" class="pro-only" type="button" data-i18n-title="srt.title">SRT</button>
+      <button id="saveZip" class="pro-only" type="button" data-i18n-title="zip.title">ZIP</button>
     </div>
-    <button id="openSettings" class="tbtn sheet-only" type="button" aria-label="설정"><svg class="ic"><use href="#i-sliders"/></svg></button>
+    <button id="openSettings" class="tbtn sheet-only" type="button" data-i18n-aria="settings.aria"><svg class="ic"><use href="#i-sliders"/></svg></button>
     <div class="progress" hidden><div id="bar"></div></div>
   </footer>
+
+  <!-- 간단 모드: 더 많은 기능 안내 -->
+  <p class="simple-foot simple-only"><span data-i18n="simple.more">문장별 다듬기 · 대본 · 자막 · 읽기 사전이 필요하면</span> <button id="toPro" type="button" class="link" data-i18n="simple.toPro">전문가 모드로 →</button></p>
 
   <!-- 확인 창(파일 열기 등) -->
   <dialog id="ask" class="help ask">
@@ -237,30 +256,8 @@
 
   <dialog id="help" class="help">
     <form method="dialog">
-      <div class="pane-head"><span class="pane-title">단축키·안내</span><span class="spacer"></span><button class="icon" value="close" aria-label="닫기"><svg class="ic"><use href="#i-x"/></svg></button></div>
-      <div class="help-body">
-        <table>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>커서가 있는 문장 듣기 (글을 선택했으면 선택한 글)</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>커서부터 끝까지 듣기</td></tr>
-          <tr><td>재생 버튼</td><td>재생 중에 누르면 일시정지 · 다시 누르면 이어 듣기</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>멈춤 (모두 만들기·내보내기도 멈춤)</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>전체 WAV 저장</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>프로젝트 저장 (.json)</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>파일 열기 (글·자막·프로젝트)</td></tr>
-          <tr><td><kbd>Alt</kbd>+<kbd>R</kbd></td><td>커서 문장 다시 뽑기 (최근 3개 후보를 남김)</td></tr>
-          <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>~<kbd>0</kbd></td><td>표현 태그 넣기 (버튼 오른쪽 숫자)</td></tr>
-          <tr><td>문장 목록 <kbd>↑</kbd><kbd>↓</kbd></td><td>문장 이동 · <kbd>Enter</kbd> 듣기</td></tr>
-          <tr><td><kbd>?</kbd></td><td>이 창 (편집기 밖에서)</td></tr>
-        </table>
-        <p class="hint">Mac 은 <kbd>Ctrl</kbd> 대신 <kbd>⌘</kbd>, <kbd>Alt</kbd> 대신 <kbd>⌥</kbd>.</p>
-        <p class="hint"><b>쉼</b> · 글 안에 <code>[1초]</code> <code>[0.5초]</code> <code>[500ms]</code> 처럼 쓰면 그 자리에서 쉽니다(최대 10초). 툴바의 <b>쉼</b> 버튼으로 넣을 수 있습니다.</p>
-        <p class="hint"><b>읽기 사전</b> · 설정 › 읽기 사전에 <code>TTS → 티티에스</code> 처럼 적으면 글은 그대로 두고 읽을 때만 바꿉니다. 편집기에서 단어를 선택한 채 <b>항목 추가</b>를 누르면 그 단어가 들어갑니다.</p>
-        <p class="hint"><b>문장별 설정</b> · 문장 목록의 <b>⋯</b> 를 누르면 그 문장만 목소리·빠르기·뒤 쉼을 바꾸고, 문장 WAV 를 저장할 수 있습니다. 다시 뽑기 후보(1·2·3)를 눌러 마음에 드는 소리로 돌아갈 수 있습니다.</p>
-        <p class="hint"><b>표현 태그</b> · 공식 태그는 웃음·숨·한숨 3개입니다. 문장 처음이나 끝에 두세요(문장 중간은 잘 안 됨). 소리 대신 글자로 읽히면 그 문장만 다시 뽑거나 설정 › 소리 › 표현 태그를 '두 번 겹쳐 강조'로 바꿔 보세요. 학습 데이터가 주로 한·영·일이라 자동일 때 그 밖 언어는 태그를 빼고 읽습니다. '실험 태그'(점선) 7개는 공식 문서에 없는 목록이라 효과가 없거나 글자로 읽힐 수 있습니다.</p>
-        <p class="hint"><b>대본 모드</b> · 툴바의 '대본'을 켜고 줄을 '이름: 대사'로 쓰면 인물마다 목소리·나이를 따로 정합니다. 이름이 없는 줄은 기본 목소리로 읽습니다.</p>
-        <p class="hint"><b>프로젝트</b> · 툴바의 저장으로 글·인물·사전·문장별 설정·다시 뽑은 소리를 .json 하나로 저장하고, 열기로 다시 불러옵니다. 휴대폰에서는 브라우저 메뉴의 '홈 화면에 추가'로 앱처럼 쓸 수 있습니다.</p>
-        <p class="hint">음성은 <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noopener">Supertonic 3</a>(Open RAIL-M)로 이 기기 안에서 만들며 글이 서버로 가지 않습니다. 만든 음성은 AI 음성임을 밝히고, 사람을 사칭하거나 속이는 데 쓰지 마세요. Supertone Inc. 와 관계없는 프로젝트입니다. · <a href="THIRD_PARTY_NOTICES.md">라이선스</a></p>
-      </div>
+      <div class="pane-head"><span class="pane-title" data-i18n="help.title">단축키·안내</span><span class="spacer"></span><button class="icon" value="close" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+      <div id="helpBody" class="help-body"></div>
     </form>
   </dialog>
 

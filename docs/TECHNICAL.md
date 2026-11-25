@@ -7,8 +7,9 @@
 
 | 파일 | 역할 |
 |---|---|
-| `index.html` | 화면 구조. PC 3칸(설정 / 편집기 / 문장 목록), 900px 미만은 한 칸 + 설정 시트 |
-| `style.css` | 배치·테마. 색은 `:root` 변수, 다크 모드는 `prefers-color-scheme`, 직접 고른 테마는 `<html data-theme>` |
+| `index.html` | 화면 구조. 전문가 모드는 PC 3칸(설정 / 편집기 / 문장 목록), 900px 미만은 한 칸 + 설정 시트. 간단 모드는 가운데 카드 하나(편집기 + 재생 막대). 모드·테마·화면 언어는 `<head>` 스크립트가 그리기 전에 `<html data-mode data-theme lang>` 로 적용 |
+| `i18n.js` | 화면 문구 한국어/영어. HTML 은 `data-i18n` · `data-i18n-html` · `data-i18n-title` · `data-i18n-aria` · `data-i18n-ph`, JS 는 `t('키', {값})` |
+| `style.css` | 배치·테마. 색은 `:root` 변수, 다크 모드는 `prefers-color-scheme`, 직접 고른 테마는 `<html data-theme>`. 간단 모드는 `html[data-mode="simple"]` 규칙(`.pro-only` 숨김, `.simple-only` 보임) |
 | `app.js` | 편집기, 문장 나누기, 재생·일시정지, 다시 뽑기 후보, 문장별 설정, 쉼 표기, 읽기 사전, 내보내기(WAV/SRT/ZIP), 프로젝트(.json), 단축키, 설정 저장 |
 | `tts-client.js` | 화면 쪽 창구. `tts-worker.js`(별도 스레드)를 쓰고, 워커를 못 쓰면 화면 스레드에서 직접 실행 |
 | `tts-worker.js` | 워커 안에서 `tts.js` 실행 |
@@ -73,7 +74,7 @@
 - 내려받는 파일 이름: `tts-YYYYMMDD-HHMM[-번호].wav`, `tts-project-YYYYMMDD-HHMM.json` (ASCII 만 — 일부 브라우저가 한글 파일 이름을 바꾸거나 버림).
 
 ## 저장
-`localStorage` 에 설정·글(최대 30만 자)·인물 설정·고른 시드·후보·문장별 설정(`tts-studio:v2`), 프리셋(`tts-studio:presets`), 읽기 사전(`tts-studio:dict`), 화면 테마(`tts-studio:theme`). 문장 키로 남긴 값이 400개를 넘으면 지금 글에 없는 것부터 정리. 브라우저마다 따로이며 서버로 가지 않습니다.
+`localStorage` 에 설정·글(최대 30만 자)·인물 설정·고른 시드·후보·문장별 설정(`tts-studio:v2`), 프리셋(`tts-studio:presets`), 읽기 사전(`tts-studio:dict`), 화면 테마(`tts-studio:theme`), 화면 모드(`tts-studio:mode`, 없으면 처음 온 사람은 간단·이미 쓰던 사람은 전문가), 화면 언어(`tts-studio:ui`, 없으면 브라우저 언어). 문장 키로 남긴 값이 400개를 넘으면 지금 글에 없는 것부터 정리. 브라우저마다 따로이며 서버로 가지 않습니다.
 
 앱 파일은 서비스 워커가 Cache Storage(`tts-studio-app`)에 보관하고, 네트워크가 끊기면 보관본을 씀. 모델 파일(`supertonic3-aafc6e3`)과 함께 있으면 인터넷 없이 열고 합성할 수 있음.
 
