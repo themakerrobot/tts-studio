@@ -1,13 +1,44 @@
 // Supertonic 3 browser inference (ONNX Runtime Web, WebGPU → WASM fallback)
 // Based on supertone-inc/supertonic web/helper.js (MIT). Typed-array rewrite + Cache API model storage.
-// onnxruntime-web 1.22.0 (npm 패키지 dist/ 그대로)를 저장소 vendor/ort/ 에 두고 같은 사이트에서 불러옴 → CDN 의존 없음
-import * as ort from './vendor/ort/ort.webgpu.min.mjs';
 import { splitSentences } from './sentences.js';
 
-ort.env.wasm.wasmPaths = new URL('./vendor/ort/', import.meta.url).href;
-ort.env.wasm.numThreads = self.crossOriginIsolated
-  ? Math.min(4, navigator.hardwareConcurrency || 1)
-  : 1;
+// onnxruntime-web 1.22.0 받는 곳: 1순위 jsDelivr(버전 고정), 안 되면 같은 사이트 vendor/ort/ 사본(npm dist/ 그대로).
+// - 평소에는 CDN 에서 받아 GitHub Pages 전송량을 아낌(새 기기마다 약 22MB)
+// - CDN 이 장애이거나 학교·기관 망에서 막히면 같은 사이트 사본으로 넘어감
+// - 한 번 받은 파일은 서비스 워커(coi-sw.js)가 기기에 보관 → 그 뒤로는 CDN 이 없어도 동작
+// 막힌 망은 연결이 바로 끊기지 않고 오래 기다리기도 해서, CDN 은 먼저 4초 안에 응답하는지 확인함.
+// 주소 뒤 ?ort=local / ?ort=cdn 으로 강제할 수 있음(진단용).
+const ORT_VERSION = '1.22.0';
+export const ORT_CDN = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+const ORT_LOCAL = new URL('./vendor/ort/', import.meta.url).href;
+const ORT_WASM = 'ort-wasm-simd-threaded.jsep.wasm';
+let ort = null;
+async function reachable(url, ms = 4000) {
+  try { if (await caches.match(url)) return true; } catch (_) { /* Cache Storage 없음 */ } // 이미 기기에 보관됨(오프라인 포함)
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return (await fetch(url, { method: 'HEAD', signal: ctl.signal })).ok; } catch (_) { return false; } finally { clearTimeout(timer); }
+}
+async function loadOrt(search) {
+  const force = new URLSearchParams(search).get('ort');
+  const bases = force === 'local' ? [ORT_LOCAL] : force === 'cdn' ? [ORT_CDN] : [ORT_CDN, ORT_LOCAL];
+  for (const base of bases) {
+    if (base === ORT_CDN && bases.length > 1 && !(await reachable(`${base}${ORT_WASM}`))) {
+      console.warn('[tts] onnxruntime CDN 에 닿지 않아 같은 사이트 사본을 씀');
+      continue;
+    }
+    try {
+      const m = await import(`${base}ort.webgpu.min.mjs`);
+      m.env.wasm.wasmPaths = base;
+      m.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+      console.info(`[tts] onnxruntime 받은 곳: ${base === ORT_CDN ? 'jsDelivr' : '같은 사이트'}`);
+      return m;
+    } catch (e) {
+      console.warn(`[tts] onnxruntime 을 불러오지 못함: ${base}`, e);
+    }
+  }
+  throw new Error('onnxruntime-web 을 불러오지 못했어요');
+}
 
 // 모델 위치 후보. 위에서부터 차례로 시도하고, 파일이 없거나 구성이 다르면 다음 후보로 넘어감.
 //  1) ./assets            자체 호스팅(있을 때만)
@@ -259,6 +290,7 @@ export class SupertonicTTS {
   async load(onStatus, { search, mobile = isMobileDevice(), ui = 'ko' } = {}) {
     const t0 = performance.now();
     const M = LOAD_MSG[ui] || LOAD_MSG.ko;
+    ort ||= await loadOrt(search ?? self.location?.search ?? '');
     // 저장 공간 부족 시 브라우저가 모델 캐시를 지우지 않도록 영구 저장 요청
     try { await navigator.storage?.persist?.(); } catch (_) { /* unsupported */ }
     const names = [

@@ -17,7 +17,7 @@
 | `sentences.js` | 문장 끝 판정. `app.js`(문장 목록)와 `tts.js`(합성 조각)가 같이 씀 |
 | `coi-sw.js` | 서비스 워커. 교차 출처 격리(COOP/COEP, WASM 다중 스레드용) + 앱 파일 보관(오프라인 실행) |
 | `manifest.webmanifest`, `icons/` | 홈 화면에 추가(앱 설치)용 정보와 아이콘 |
-| `vendor/ort/` | onnxruntime-web 1.22.0 `dist/` 파일 3개(수정 없음). CDN 의존 없음 |
+| `vendor/ort/` | onnxruntime-web 1.22.0 `dist/` 파일 3개(수정 없음). jsDelivr 에서 못 받을 때 쓰는 대비 사본 |
 | `licenses/` | 모델·코드·런타임 라이선스 원문 |
 
 ## 엔진
@@ -26,6 +26,7 @@
 - 목소리: `voice_styles/F1~F5, M1~M5.json`.
 - 실행 방식: WebGPU → WASM 순서로 시도. 휴대폰·태블릿 GPU(Adreno, Mali 등)는 자동일 때 WebGPU 를 건너뜀.
 - WASM 스레드: `crossOriginIsolated` 일 때 `min(4, hardwareConcurrency)`, 아니면 1.
+- 런타임(onnxruntime-web 1.22.0) 받는 곳: ① jsDelivr `onnxruntime-web@1.22.0/dist/`(버전 고정) ② 같은 사이트 `vendor/ort/`. CDN 은 먼저 기기 보관본이 있는지 보고, 없으면 HEAD 요청이 4초 안에 성공해야 씀(막힌 망에서 오래 기다리지 않도록). jsDelivr 는 `Access-Control-Allow-Origin: *`, `Cross-Origin-Resource-Policy: cross-origin` 을 보내므로 교차 출처 격리(COEP) 상태에서도 다중 스레드로 돎. 서비스 워커가 CDN 파일을 `tts-studio-app` 에 보관하고 보관본을 먼저 씀 → 한 번 받은 기기는 CDN 없이도 동작. 평소에는 Pages 전송량(새 기기마다 약 22MB)이 들지 않음.
 - 모델 파일은 처음 받을 때 Cache Storage(`supertonic3-aafc6e3`)에 바로 흘려 넣고, 다음부터 네트워크 없이 읽음.
 - 기기에는 모델 1개만 둠: 로딩이 끝나면 지금 쓰는 4개 파일이 아닌 `.onnx`(다른 모델, 예전 리비전 등)는 지움. 설정 › 엔진에 지금 쓰는 모델(`사용 중`)과 `navigator.storage.estimate()` 사용량 표시.
 
@@ -47,6 +48,7 @@
 | `?ep=webgpu` / `?ep=wasm` | 실행 방식 강제 |
 | `?model=계정/저장소[@리비전][/폴더]` | 이 위치를 가장 먼저 시도 |
 | `&strict=1` | `model` 로 지정한 위치만 씀(다른 모델로 넘어가지 않음) |
+| `?ort=local` / `?ort=cdn` | onnxruntime-web 받는 곳 강제(진단용) |
 
 설정 화면의 `엔진` 칸이 이 매개변수를 만들어 페이지를 다시 불러옵니다.
 

@@ -38,7 +38,8 @@
       }).catch(function () {});
     })();
   </script>
-  <link rel="modulepreload" href="vendor/ort/ort.webgpu.min.mjs">
+  <!-- 음성 엔진(onnxruntime-web)은 jsDelivr 에서 먼저 받음(안 되면 같은 사이트 vendor/ort/). 미리 연결해 둠 -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
